@@ -73,6 +73,9 @@ abstract class QueueDao {
     @Query("SELECT COUNT(*) FROM queue_items WHERE podcastId = :podcastId")
     abstract suspend fun countEpisodesInQueueForPodcast(podcastId: String): Int
 
+    @Query("DELETE FROM queue_items WHERE podcastId = :podcastId")
+    abstract suspend fun removeEpisodesForPodcast(podcastId: String): Int
+
     @Query("DELETE FROM queue_items WHERE episodeId IN (SELECT id FROM episodes WHERE isLive = 1 OR liveStatus IS NOT NULL)")
     abstract suspend fun purgeLiveItemsFromQueue(): Int
 

@@ -87,7 +87,7 @@ fun GoogleDriveSyncSheet(
             syncManager.setSyncFolder(uri)
             scope.launch {
                 isSyncingNow = true
-                val result = syncManager.performSync()
+                val result = syncManager.performSync(isManual = true)
                 isSyncingNow = false
                 result.onSuccess {
                     syncFeedbackMessage = it.message
@@ -230,7 +230,7 @@ fun GoogleDriveSyncSheet(
                     onClick = {
                         scope.launch {
                             isSyncingNow = true
-                            val result = syncManager.performSync()
+                            val result = syncManager.performSync(isManual = true)
                             isSyncingNow = false
                             result.onSuccess {
                                 syncFeedbackMessage = it.message

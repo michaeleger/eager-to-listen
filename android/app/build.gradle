@@ -93,10 +93,12 @@ dependencies {
     implementation 'androidx.core:core-splashscreen:1.0.1'
     implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'androidx.lifecycle:lifecycle-process:2.8.7'
 
     // Testing
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'kxml2:kxml2:2.3.0'
+    testImplementation 'org.json:json:20240303'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1'
     testImplementation 'androidx.room:room-testing:2.7.2'
     testImplementation 'androidx.test:core:1.6.1'

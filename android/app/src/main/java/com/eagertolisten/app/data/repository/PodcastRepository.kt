@@ -52,6 +52,7 @@ class PodcastRepository(context: Context) {
     private val podcastDao = db.podcastDao()
     private val episodeDao = db.episodeDao()
     private val queueDao = db.queueDao()
+    private val pendingRemoteEpisodeDao = db.pendingRemoteEpisodeDao()
     private val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
 
     private val rebuildMutex = Mutex()
@@ -266,6 +267,29 @@ class PodcastRepository(context: Context) {
                     )
                     if (realTitle.isNotBlank()) {
                         episodeDao.updatePodcastTitleForEpisodes(podcast.id, realTitle)
+                    }
+
+                    // Apply any pending remote sync episode states for this podcast
+                    val pending = pendingRemoteEpisodeDao.getPendingForPodcast(podcast.id)
+                    if (pending.isNotEmpty()) {
+                        for (p in pending) {
+                            val ep = episodeDao.getEpisodeByIdSync(p.episodeId)
+                            if (ep != null) {
+                                episodeDao.updateEpisodeSyncState(
+                                    episodeId = p.episodeId,
+                                    pos = p.playbackPositionSeconds,
+                                    completed = p.isCompleted,
+                                    completedAt = p.completedAt,
+                                    dismissed = p.isDismissed,
+                                    dismissReason = p.dismissReason,
+                                    skippedAt = p.skippedAt,
+                                    skipCount = p.skipCount,
+                                    updatedAt = p.updatedAt
+                                )
+                            }
+                        }
+                        pendingRemoteEpisodeDao.deleteForPodcast(podcast.id)
+                        Log.d("EagerRefresh", "Applied ${pending.size} pending sync states for '${podcast.title}'")
                     }
                 }
 

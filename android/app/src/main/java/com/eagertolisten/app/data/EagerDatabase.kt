@@ -5,15 +5,16 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.eagertolisten.app.data.dao.EpisodeDao
+import com.eagertolisten.app.data.dao.InspirationDao
+import com.eagertolisten.app.data.dao.PendingRemoteEpisodeDao
 import com.eagertolisten.app.data.dao.PodcastDao
 import com.eagertolisten.app.data.dao.QueueDao
 import com.eagertolisten.app.data.model.Episode
+import com.eagertolisten.app.data.model.InspirationClip
+import com.eagertolisten.app.data.model.PendingRemoteEpisode
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.data.model.QueueItem
-
 import androidx.room.migration.Migration
-import com.eagertolisten.app.data.dao.InspirationDao
-import com.eagertolisten.app.data.model.InspirationClip
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
@@ -21,7 +22,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Podcast::class,
         Episode::class,
         QueueItem::class,
-        InspirationClip::class
+        InspirationClip::class,
+        PendingRemoteEpisode::class
     ],
     version = 6,
     exportSchema = true
@@ -31,6 +33,7 @@ abstract class EagerDatabase : RoomDatabase() {
     abstract fun episodeDao(): EpisodeDao
     abstract fun queueDao(): QueueDao
     abstract fun inspirationDao(): InspirationDao
+    abstract fun pendingRemoteEpisodeDao(): PendingRemoteEpisodeDao
 
     companion object {
         @Volatile
@@ -223,6 +226,22 @@ abstract class EagerDatabase : RoomDatabase() {
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_queue_items_episodeId ON queue_items(episodeId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_queue_items_orderIndex ON queue_items(orderIndex)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_queue_order ON queue_items(orderIndex, episodeId)")
+
+                // 5. Create pending_remote_episodes table for sync
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pending_remote_episodes (
+                        episodeId TEXT NOT NULL PRIMARY KEY,
+                        podcastId TEXT NOT NULL,
+                        playbackPositionSeconds INTEGER NOT NULL,
+                        isCompleted INTEGER NOT NULL,
+                        completedAt INTEGER,
+                        isDismissed INTEGER NOT NULL,
+                        dismissReason TEXT,
+                        skippedAt INTEGER,
+                        skipCount INTEGER NOT NULL DEFAULT 0,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """)
             }
         }
 

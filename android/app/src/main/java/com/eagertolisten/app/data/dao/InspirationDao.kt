@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.eagertolisten.app.data.model.InspirationClip
 import kotlinx.coroutines.flow.Flow
 
@@ -21,8 +22,11 @@ interface InspirationDao {
     @Query("SELECT * FROM inspiration_clips WHERE episodeId = :episodeId ORDER BY timestampSeconds ASC")
     fun getInspirationsForEpisode(episodeId: String): Flow<List<InspirationClip>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertInspiration(clip: InspirationClip)
+
+    @Upsert
+    suspend fun upsertInspirations(clips: List<InspirationClip>)
 
     @Update
     suspend fun updateInspiration(clip: InspirationClip)

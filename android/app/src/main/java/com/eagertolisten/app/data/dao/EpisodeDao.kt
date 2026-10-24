@@ -31,6 +31,19 @@ data class PodcastLastTurn(
     val lastTurn: Long
 )
 
+data class EpisodeSyncProjection(
+    val id: String,
+    val podcastId: String,
+    val playbackPositionSeconds: Long,
+    val isCompleted: Boolean,
+    val completedAt: Long?,
+    val isDismissed: Boolean,
+    val dismissReason: String?,
+    val skippedAt: Long?,
+    val skipCount: Int,
+    val updatedAt: Long
+)
+
 @Dao
 interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC")
@@ -92,10 +105,42 @@ interface EpisodeDao {
     ): Int
 
     @Query("""
+        UPDATE episodes
+        SET playbackPositionSeconds = :pos,
+            isCompleted = :completed,
+            completedAt = :completedAt,
+            isDismissed = :dismissed,
+            dismissReason = :dismissReason,
+            skippedAt = :skippedAt,
+            skipCount = :skipCount,
+            updatedAt = :updatedAt
+        WHERE id = :episodeId
+    """)
+    suspend fun updateEpisodeSyncState(
+        episodeId: String,
+        pos: Long,
+        completed: Boolean,
+        completedAt: Long?,
+        dismissed: Boolean,
+        dismissReason: String?,
+        skippedAt: Long?,
+        skipCount: Int,
+        updatedAt: Long
+    ): Int
+
+    @Query("""
+        SELECT id, podcastId, playbackPositionSeconds, isCompleted, completedAt, isDismissed, dismissReason, skippedAt, skipCount, updatedAt
+        FROM episodes
+        WHERE playbackPositionSeconds > 0 OR isCompleted = 1 OR isDismissed = 1 OR skipCount > 0 OR dismissReason = 'UNPLAYED'
+    """)
+    suspend fun getEpisodesForSync(): List<EpisodeSyncProjection>
+
+    @Query("""
         UPDATE episodes 
         SET isCompleted = 1,
             completedAt = :completedAt,
             playbackPositionSeconds = durationSeconds,
+            dismissReason = NULL,
             updatedAt = :completedAt
         WHERE id = :episodeId
     """)
@@ -145,7 +190,7 @@ interface EpisodeDao {
             skippedAt = NULL,
             skipCount = 0,
             isDismissed = 0,
-            dismissReason = NULL,
+            dismissReason = 'UNPLAYED',
             updatedAt = :timestamp
         WHERE id = :episodeId
     """)

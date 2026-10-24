@@ -27,6 +27,9 @@ interface PodcastDao {
     @Query("SELECT * FROM podcasts WHERE unsubscribedAt IS NULL ORDER BY priority ASC, title ASC")
     suspend fun getAllPodcastsSync(): List<Podcast>
 
+    @Query("SELECT * FROM podcasts ORDER BY priority ASC, title ASC")
+    suspend fun getAllPodcastsIncludingUnsubscribedSync(): List<Podcast>
+
     @Query("""
         SELECT * FROM podcasts 
         WHERE unsubscribedAt IS NULL

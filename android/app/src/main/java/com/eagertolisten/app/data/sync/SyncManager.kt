@@ -4,17 +4,16 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.eagertolisten.app.data.EagerDatabase
-import com.eagertolisten.app.data.model.Episode
-import com.eagertolisten.app.data.model.Podcast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 enum class SyncStatus {
     DISCONNECTED,
@@ -45,12 +44,18 @@ class SyncManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("eager_sync_prefs", Context.MODE_PRIVATE)
     private val db = EagerDatabase.getInstance(context)
-    private val podcastDao = db.podcastDao()
-    private val episodeDao = db.episodeDao()
-    private val queueDao = db.queueDao()
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<SyncState> = _state.asStateFlow()
+
+    fun getOrCreateDeviceId(): String {
+        var id = prefs.getString("device_id", null)
+        if (id.isNullOrBlank()) {
+            id = UUID.randomUUID().toString()
+            prefs.edit().putString("device_id", id).apply()
+        }
+        return id
+    }
 
     private fun loadInitialState(): SyncState {
         val uriStr = prefs.getString("sync_folder_uri", null)
@@ -124,9 +129,13 @@ class SyncManager(private val context: Context) {
         )
     }
 
-    suspend fun performSync(): Result<SyncSummary> = withContext(Dispatchers.IO) {
+    suspend fun performSync(isManual: Boolean = false): Result<SyncSummary> = withContext(Dispatchers.IO) {
         val uriStr = _state.value.folderUri
             ?: return@withContext Result.failure(Exception("No sync folder selected. Please select a Google Drive folder."))
+
+        if (!isManual && !_state.value.autoSyncEnabled) {
+            return@withContext Result.failure(Exception("Auto-sync is disabled."))
+        }
 
         _state.value = _state.value.copy(status = SyncStatus.SYNCING)
 
@@ -135,158 +144,105 @@ class SyncManager(private val context: Context) {
             val dir = DocumentFile.fromTreeUri(context, treeUri)
                 ?: return@withContext Result.failure(Exception("Unable to access Google Drive sync folder."))
 
-            val fileName = "eagertolisten_sync.json"
-            var syncFile = dir.findFile(fileName)
-
-            // 1. Read remote state if exists
-            var remoteJson: JSONObject? = null
-            if (syncFile != null && syncFile.exists() && syncFile.length() > 0) {
-                try {
-                    context.contentResolver.openInputStream(syncFile.uri)?.use { stream ->
-                        val text = stream.bufferedReader().readText()
-                        if (text.isNotBlank()) {
-                            remoteJson = JSONObject(text)
-                        }
-                    }
-                } catch (_: Exception) {
-                    // Proceed with local export if remote is corrupted/empty
-                }
+            // 1. Find all sync files (and merge duplicates like eagertolisten_sync (1).json)
+            val allFiles = dir.listFiles()
+            val syncFiles = allFiles.filter { file ->
+                val name = file.name ?: ""
+                name.startsWith("eagertolisten_sync") && name.endsWith(".json") &&
+                    !name.endsWith(".tmp.json") && !name.endsWith(".bak.json")
             }
 
-            // 2. Merge remote changes into local database
-            var mergedPodcasts = 0
-            var mergedEpisodes = 0
-            val rJson = remoteJson
-            if (rJson != null) {
-                val remotePodcasts = rJson.optJSONArray("podcasts")
-                if (remotePodcasts != null) {
-                    for (i in 0 until remotePodcasts.length()) {
-                        val pObj = remotePodcasts.getJSONObject(i)
-                        val id = pObj.getString("id")
-                        val existing = podcastDao.getPodcastByIdSync(id)
-                        if (existing == null) {
-                            val newPodcast = Podcast(
-                                id = id,
-                                title = pObj.optString("title", "Podcast"),
-                                feedUrl = pObj.optString("feedUrl", id),
-                                artworkUrl = pObj.optString("artworkUrl", ""),
-                                author = pObj.optString("author", ""),
-                                description = pObj.optString("description", ""),
-                                priority = pObj.optInt("priority", 3),
-                                skipIntroSeconds = pObj.optInt("skipIntroSeconds", 0),
-                                skipOutroSeconds = pObj.optInt("skipOutroSeconds", 0),
-                                playbackSpeed = pObj.optDouble("playbackSpeed", 1.0).toFloat(),
-                                autoAddToQueue = pObj.optBoolean("autoAddToQueue", true),
-                                maxEpisodesInQueue = pObj.optInt("maxEpisodesInQueue", 5),
-                                category = pObj.optString("category", "General"),
-                                playOrderStrategy = pObj.optString("playOrderStrategy", "EVERGREEN"),
-                                newsRetentionDays = pObj.optInt("newsRetentionDays", 3),
-                                consecutivePlayLimit = pObj.optInt("consecutivePlayLimit", -1)
-                            )
-                            podcastDao.insertPodcast(newPodcast)
-                            mergedPodcasts++
-                        }
-                    }
-                }
+            var mergedPodcastsTotal = 0
+            var mergedEpisodesTotal = 0
+            val duplicateFilesToDelete = mutableListOf<DocumentFile>()
 
-                val remoteEpisodes = rJson.optJSONArray("episodes")
-                if (remoteEpisodes != null) {
-                    for (i in 0 until remoteEpisodes.length()) {
-                        val eObj = remoteEpisodes.getJSONObject(i)
-                        val epId = eObj.getString("id")
-                        val remotePos = eObj.optLong("playbackPositionSeconds", 0L)
-                        val remoteCompleted = eObj.optBoolean("isCompleted", false)
-                        val remoteUpdatedAt = eObj.optLong("updatedAt", 0L)
-
-                        val localEp = episodeDao.getEpisodeByIdSync(epId)
-                        if (localEp != null) {
-                            val shouldUpdate = (remoteCompleted && !localEp.isCompleted) ||
-                                (!localEp.isCompleted && remotePos > localEp.playbackPositionSeconds && remoteUpdatedAt >= localEp.updatedAt)
-                            if (shouldUpdate) {
-                                episodeDao.updatePlaybackProgress(
-                                    episodeId = epId,
-                                    positionSec = if (remoteCompleted) localEp.durationSeconds else remotePos,
-                                    isCompleted = remoteCompleted,
-                                    updatedAt = remoteUpdatedAt
-                                )
-                                mergedEpisodes++
+            for (file in syncFiles) {
+                try {
+                    context.contentResolver.openInputStream(file.uri)?.use { stream ->
+                        val text = stream.bufferedReader().readText()
+                        if (text.isNotBlank()) {
+                            val json = JSONObject(text)
+                            val remoteState = SyncSerializer.parseJson(json)
+                            // Only merge if from another device or newer than last sync
+                            if (remoteState.deviceId != getOrCreateDeviceId() || remoteState.writtenAt > prefs.getLong("last_sync_timestamp", 0L)) {
+                                val summary = SyncSerializer.mergeState(db, remoteState)
+                                mergedPodcastsTotal += summary.podcastsSynced
+                                mergedEpisodesTotal += summary.episodesSynced
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.w("SyncManager", "Failed to parse remote sync file: ${file.name}", e)
+                }
+
+                if (file.name != "eagertolisten_sync.json") {
+                    duplicateFilesToDelete.add(file)
                 }
             }
 
-            // 3. Export latest consolidated local state to Drive
-            val localPodcasts = podcastDao.getAllPodcastsSync()
-            val localEpisodes = episodeDao.getRecentUnplayedEpisodesSync(200)
-            val localQueue = queueDao.getQueueEpisodesSync()
-
-            val exportJson = JSONObject().apply {
-                put("version", 1)
-                put("client", "Eager to Listen (Android)")
-                put("timestamp", System.currentTimeMillis())
-
-                val podcastsArray = JSONArray()
-                localPodcasts.forEach { p ->
-                    podcastsArray.put(JSONObject().apply {
-                        put("id", p.id)
-                        put("title", p.title)
-                        put("feedUrl", p.feedUrl)
-                        put("artworkUrl", p.artworkUrl)
-                        put("author", p.author)
-                        put("description", p.description)
-                        put("priority", p.priority)
-                        put("skipIntroSeconds", p.skipIntroSeconds)
-                        put("skipOutroSeconds", p.skipOutroSeconds)
-                        put("playbackSpeed", p.playbackSpeed.toDouble())
-                        put("autoAddToQueue", p.autoAddToQueue)
-                        put("maxEpisodesInQueue", p.maxEpisodesInQueue)
-                        put("category", p.category)
-                        put("playOrderStrategy", p.playOrderStrategy)
-                        put("newsRetentionDays", p.newsRetentionDays)
-                        put("consecutivePlayLimit", p.consecutivePlayLimit)
-                    })
-                }
-                put("podcasts", podcastsArray)
-
-                val episodesArray = JSONArray()
-                localEpisodes.forEach { ep ->
-                    episodesArray.put(JSONObject().apply {
-                        put("id", ep.id)
-                        put("podcastId", ep.podcastId)
-                        put("podcastTitle", ep.podcastTitle)
-                        put("title", ep.title)
-                        put("audioUrl", ep.audioUrl)
-                        put("publishedAt", ep.publishedAt)
-                        put("durationSeconds", ep.durationSeconds)
-                        put("playbackPositionSeconds", ep.playbackPositionSeconds)
-                        put("isCompleted", ep.isCompleted)
-                        put("updatedAt", ep.updatedAt)
-                    })
-                }
-                put("episodes", episodesArray)
-
-                val queueArray = JSONArray()
-                localQueue.forEach { q ->
-                    queueArray.put(q.id)
-                }
-                put("queue", queueArray)
+            // Clean up extra duplicate files in Drive
+            for (dup in duplicateFilesToDelete) {
+                try {
+                    dup.delete()
+                } catch (_: Exception) {}
             }
 
-            if (syncFile == null || !syncFile.exists()) {
-                syncFile = dir.createFile("application/json", fileName)
-                    ?: return@withContext Result.failure(Exception("Failed to create eagertolisten_sync.json in Drive folder"))
-            }
+            // 2. Export updated consolidated state (Write Safety: .tmp.json -> validate -> .bak.json -> eagertolisten_sync.json)
+            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId())
+            val jsonString = exportJson.toString(2)
 
-            context.contentResolver.openOutputStream(syncFile.uri, "wt")?.use { stream ->
-                stream.write(exportJson.toString(2).toByteArray(Charsets.UTF_8))
+            // Write to .tmp.json
+            val tmpFile = dir.findFile("eagertolisten_sync.tmp.json")
+                ?: dir.createFile("application/json", "eagertolisten_sync.tmp.json")
+                ?: return@withContext Result.failure(Exception("Failed to create eagertolisten_sync.tmp.json"))
+
+            context.contentResolver.openOutputStream(tmpFile.uri, "wt")?.use { stream ->
+                stream.write(jsonString.toByteArray(Charsets.UTF_8))
                 stream.flush()
             }
+
+            // Read back and validate
+            val readBackText = context.contentResolver.openInputStream(tmpFile.uri)?.use { stream ->
+                stream.bufferedReader().readText()
+            } ?: ""
+            val parsedValidation = JSONObject(readBackText)
+            if (parsedValidation.optInt("format", 0) != SyncSerializer.CURRENT_FORMAT) {
+                throw IllegalStateException("Validation of temporary sync file failed.")
+            }
+
+            // Backup existing eagertolisten_sync.json if present
+            val existingMainFile = dir.findFile("eagertolisten_sync.json")
+            if (existingMainFile != null && existingMainFile.exists()) {
+                val bakFile = dir.findFile("eagertolisten_sync.bak.json")
+                    ?: dir.createFile("application/json", "eagertolisten_sync.bak.json")
+                if (bakFile != null) {
+                    context.contentResolver.openInputStream(existingMainFile.uri)?.use { inStream ->
+                        context.contentResolver.openOutputStream(bakFile.uri, "wt")?.use { outStream ->
+                            inStream.copyTo(outStream)
+                            outStream.flush()
+                        }
+                    }
+                }
+            }
+
+            // Write verified content to main eagertolisten_sync.json
+            val targetFile = existingMainFile ?: dir.createFile("application/json", "eagertolisten_sync.json")
+                ?: return@withContext Result.failure(Exception("Failed to create eagertolisten_sync.json"))
+
+            context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { stream ->
+                stream.write(jsonString.toByteArray(Charsets.UTF_8))
+                stream.flush()
+            }
+
+            // Remove tmp file
+            try {
+                tmpFile.delete()
+            } catch (_: Exception) {}
 
             val now = System.currentTimeMillis()
             prefs.edit().putLong("last_sync_timestamp", now).apply()
 
-            val summaryMsg = "Successfully synced ${localPodcasts.size} podcasts and ${localEpisodes.size} episodes"
+            val summaryMsg = "Synced $mergedPodcastsTotal podcasts, $mergedEpisodesTotal episodes"
             _state.value = _state.value.copy(
                 status = SyncStatus.CONNECTED,
                 lastSyncTimestamp = now,
@@ -296,9 +252,9 @@ class SyncManager(private val context: Context) {
 
             Result.success(
                 SyncSummary(
-                    podcastsSynced = localPodcasts.size,
-                    episodesSynced = localEpisodes.size,
-                    queueCount = localQueue.size,
+                    podcastsSynced = mergedPodcastsTotal,
+                    episodesSynced = mergedEpisodesTotal,
+                    queueCount = db.queueDao().getQueueCount(),
                     message = summaryMsg
                 )
             )
@@ -307,6 +263,34 @@ class SyncManager(private val context: Context) {
                 status = SyncStatus.ERROR,
                 errorMessage = e.localizedMessage ?: "Sync error occurred"
             )
+            Result.failure(e)
+        }
+    }
+
+    suspend fun exportBackupToUri(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId())
+            context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+                stream.write(exportJson.toString(2).toByteArray(Charsets.UTF_8))
+                stream.flush()
+            } ?: return@withContext Result.failure(Exception("Cannot open stream for backup export"))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun restoreBackupFromUri(uri: Uri): Result<SyncSummary> = withContext(Dispatchers.IO) {
+        try {
+            val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                stream.bufferedReader().readText()
+            } ?: return@withContext Result.failure(Exception("Cannot open stream for backup restore"))
+
+            val json = JSONObject(text)
+            val remoteState = SyncSerializer.parseJson(json)
+            val summary = SyncSerializer.mergeState(db, remoteState)
+            Result.success(summary)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.media3.common.AudioAttributes
@@ -814,6 +815,14 @@ class PlaybackService : MediaLibraryService() {
     private fun onEpisodeFinished(episodeId: String) {
         EagerApp.instance.appScope.launch(Dispatchers.IO) {
             repository.markEpisodeFinished(episodeId)
+            try {
+                val syncMgr = com.eagertolisten.app.data.sync.SyncManager(applicationContext)
+                if (syncMgr.state.value.folderUri != null && syncMgr.state.value.autoSyncEnabled) {
+                    syncMgr.performSync()
+                }
+            } catch (e: Exception) {
+                Log.w("PlaybackService", "Auto-sync after finish failed: ${e.message}")
+            }
         }
     }
 

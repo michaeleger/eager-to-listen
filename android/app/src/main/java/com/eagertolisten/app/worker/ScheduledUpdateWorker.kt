@@ -105,80 +105,12 @@ class ScheduledUpdateWorker(
 
     private suspend fun performLocalAndDriveBackup(syncManager: SyncManager) {
         val db = EagerDatabase.getInstance(appContext)
-        val podcasts = db.podcastDao().getAllPodcastsSync()
-        val episodes = db.episodeDao().getRecentUnplayedEpisodesSync(200)
-        val queue = db.queueDao().getQueueEpisodesSync()
-        val inspirations = db.inspirationDao().getAllInspirationsSync()
 
-        // 1. Local JSON Backup file
+        // 1. Local JSON Backup file (Format 2 serializer)
         val backupDir = File(appContext.filesDir, "backups")
         if (!backupDir.exists()) backupDir.mkdirs()
 
-        val backupJson = JSONObject().apply {
-            put("version", 5)
-            put("client", "Eager to Listen (Android)")
-            put("timestamp", System.currentTimeMillis())
-
-            val podcastsArray = JSONArray()
-            podcasts.forEach { p ->
-                podcastsArray.put(JSONObject().apply {
-                    put("id", p.id)
-                    put("title", p.title)
-                    put("feedUrl", p.feedUrl)
-                    put("artworkUrl", p.artworkUrl)
-                    put("author", p.author)
-                    put("priority", p.priority)
-                    put("skipIntroSeconds", p.skipIntroSeconds)
-                    put("skipOutroSeconds", p.skipOutroSeconds)
-                    put("playbackSpeed", p.playbackSpeed.toDouble())
-                    put("autoAddToQueue", p.autoAddToQueue)
-                    put("maxEpisodesInQueue", p.maxEpisodesInQueue)
-                    put("category", p.category)
-                    put("playOrderStrategy", p.playOrderStrategy)
-                    put("newsRetentionDays", p.newsRetentionDays)
-                    put("consecutivePlayLimit", p.consecutivePlayLimit)
-                })
-            }
-            put("podcasts", podcastsArray)
-
-            val episodesArray = JSONArray()
-            episodes.forEach { ep ->
-                episodesArray.put(JSONObject().apply {
-                    put("id", ep.id)
-                    put("podcastId", ep.podcastId)
-                    put("podcastTitle", ep.podcastTitle)
-                    put("title", ep.title)
-                    put("audioUrl", ep.audioUrl)
-                    put("publishedAt", ep.publishedAt)
-                    put("durationSeconds", ep.durationSeconds)
-                    put("playbackPositionSeconds", ep.playbackPositionSeconds)
-                    put("isCompleted", ep.isCompleted)
-                    put("updatedAt", ep.updatedAt)
-                })
-            }
-            put("episodes", episodesArray)
-
-            val queueArray = JSONArray()
-            queue.forEach { queueArray.put(it.id) }
-            put("queue", queueArray)
-
-            val inspirationsArray = JSONArray()
-            inspirations.forEach { ins ->
-                inspirationsArray.put(JSONObject().apply {
-                    put("id", ins.id)
-                    put("episodeId", ins.episodeId)
-                    put("podcastId", ins.podcastId)
-                    put("podcastTitle", ins.podcastTitle)
-                    put("episodeTitle", ins.episodeTitle)
-                    put("timestampSeconds", ins.timestampSeconds)
-                    put("note", ins.note)
-                    put("tags", ins.tags)
-                    put("createdAt", ins.createdAt)
-                })
-            }
-            put("inspirations", inspirationsArray)
-        }
-
+        val backupJson = com.eagertolisten.app.data.sync.SyncSerializer.serializeV2(db, syncManager.getOrCreateDeviceId())
         val latestBackupFile = File(backupDir, "eagertolisten_backup_latest.json")
         latestBackupFile.writeText(backupJson.toString(2), Charsets.UTF_8)
         Log.i(TAG, "Local database backup written to: ${latestBackupFile.absolutePath}")
@@ -186,8 +118,8 @@ class ScheduledUpdateWorker(
         val prefs = appContext.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
         prefs.edit().putLong(PREF_KEY_LAST_BACKUP_TIME, System.currentTimeMillis()).apply()
 
-        // 2. Also run Drive sync if user connected a Drive folder
-        if (syncManager.state.value.folderUri != null) {
+        // 2. Also run Drive sync if user connected a Drive folder and autoSyncEnabled is true
+        if (syncManager.state.value.folderUri != null && syncManager.state.value.autoSyncEnabled) {
             val syncResult = syncManager.performSync()
             if (syncResult.isSuccess) {
                 Log.i(TAG, "Drive backup/sync completed successfully: ${syncResult.getOrNull()?.message}")

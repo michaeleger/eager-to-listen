@@ -139,6 +139,40 @@ fun SettingsScreen(
 
     var isImporting by remember { mutableStateOf(false) }
     var importStatusMessage by remember { mutableStateOf<String?>(null) }
+    var backupStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            scope.launch {
+                backupStatusMessage = "Exporting database backup..."
+                val result = syncManager.exportBackupToUri(uri)
+                result.onSuccess {
+                    backupStatusMessage = "Backup exported successfully!"
+                }.onFailure { err ->
+                    backupStatusMessage = "Backup export failed: ${err.localizedMessage ?: "Unknown error"}"
+                }
+            }
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            scope.launch {
+                backupStatusMessage = "Restoring from backup..."
+                val result = syncManager.restoreBackupFromUri(uri)
+                result.onSuccess { summary ->
+                    repository.generateProgrammedQueue()
+                    backupStatusMessage = summary.message
+                }.onFailure { err ->
+                    backupStatusMessage = "Restore failed: ${err.localizedMessage ?: "Unknown error"}"
+                }
+            }
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -366,7 +400,7 @@ fun SettingsScreen(
                                 val (ok, errs) = repository.refreshAllFeeds()
                                 repository.purgeExpiredNewsEpisodes()
                                 repository.generateProgrammedQueue()
-                                syncManager.performSync()
+                                syncManager.performSync(isManual = true)
                                 isManualUpdating = false
                                 manualUpdateStatus = "Sync & backup complete! ($ok feeds updated, ${errs.size} failed)"
                             }
@@ -381,6 +415,55 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
                         Text("Update Feeds & Backup Now", fontWeight = FontWeight.Bold)
+                    }
+
+                    if (backupStatusMessage != null) {
+                        Text(
+                            text = backupStatusMessage!!,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Priority4Color
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                                exportBackupLauncher.launch("eagertolisten_backup_$timestamp.json")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenSurface),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Export Backup", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                restoreBackupLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ForestGreenSurface),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Restore Backup", style = MaterialTheme.typography.labelMedium, color = TextPrimary)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val removed = repository.permanentlyDeleteRemovedPodcasts()
+                                backupStatusMessage = if (removed > 0) "Permanently purged $removed removed show(s) and history." else "No removed podcasts found."
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Purge History of Removed Shows", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                     }
                 }
             }
