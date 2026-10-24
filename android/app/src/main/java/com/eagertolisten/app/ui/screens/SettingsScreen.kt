@@ -186,6 +186,29 @@ fun SettingsScreen(
         }
     }
 
+    val exportOpmlLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/x-opml")
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            scope.launch {
+                isImporting = true
+                importStatusMessage = "Exporting subscriptions to OPML..."
+                try {
+                    val db = com.eagertolisten.app.data.EagerDatabase.getInstance(context)
+                    val activePodcasts = db.podcastDao().getAllPodcastsSync()
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        com.eagertolisten.app.importer.OpmlExporter.writeToStream(activePodcasts, out)
+                    }
+                    importStatusMessage = "Exported ${activePodcasts.size} podcast subscriptions to OPML."
+                } catch (e: Exception) {
+                    importStatusMessage = "OPML export failed: ${e.localizedMessage ?: "Unknown error"}"
+                } finally {
+                    isImporting = false
+                }
+            }
+        }
+    }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: android.net.Uri? ->
@@ -906,7 +929,19 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(8.dp),
                         enabled = !isImporting
                     ) {
-                        Text("Select Podcast Addict Backup (.backup / .db) or OPML", fontWeight = FontWeight.Bold)
+                        Text("Import Subscriptions (Backup / OPML)", fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val defaultFileName = "eager_subscriptions_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())}.opml"
+                            exportOpmlLauncher.launch(defaultFileName)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        enabled = !isImporting
+                    ) {
+                        Text("Export Subscriptions (OPML)", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
