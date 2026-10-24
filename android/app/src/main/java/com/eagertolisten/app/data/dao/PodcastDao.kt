@@ -83,8 +83,9 @@ interface PodcastDao {
     @Query("UPDATE podcasts SET unsubscribedAt = :timestamp WHERE id = :id")
     suspend fun softUnsubscribe(id: String, timestamp: Long = System.currentTimeMillis()): Int
 
-    @Query("UPDATE podcasts SET unsubscribedAt = NULL WHERE id = :id")
-    suspend fun clearUnsubscribed(id: String): Int
+    // Re-subscribing bumps subscribedAt so sync can tell it is newer than the unsubscribe tombstone
+    @Query("UPDATE podcasts SET unsubscribedAt = NULL, subscribedAt = :subscribedAt WHERE id = :id")
+    suspend fun clearUnsubscribed(id: String, subscribedAt: Long = System.currentTimeMillis()): Int
 
     @Query("SELECT * FROM podcasts WHERE unsubscribedAt IS NOT NULL")
     suspend fun getUnsubscribedPodcasts(): List<Podcast>

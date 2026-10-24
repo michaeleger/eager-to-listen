@@ -17,6 +17,30 @@ class FeedUrlAndEpisodeIdTest {
     }
 
     @Test
+    fun testFeedUrlNormalizationIsIdempotent() {
+        // The v5->v6 migration normalizes stored IDs and FeedParser normalizes them again via EpisodeId.of
+        val urls = listOf(
+            "https://Example.com/feed/podcast//",
+            "HTTPS://example.com:443/rss/",
+            "https://example.com/",
+            "feed1"
+        )
+        for (url in urls) {
+            val once = FeedUrl.normalize(url)
+            assertEquals(once, FeedUrl.normalize(once))
+        }
+        assertEquals("https://example.com/feed/podcast", FeedUrl.normalize("https://Example.com/feed/podcast//"))
+    }
+
+    @Test
+    fun testEpisodeIdTrimsGuidWhitespace() {
+        assertEquals(
+            "https://example.com/rss::abc",
+            EpisodeId.of("https://example.com/rss/", "  abc\n", "https://example.com/1.mp3")
+        )
+    }
+
+    @Test
     fun testEpisodeIdConsistency() {
         val podcastUrl = "https://example.com/feed.xml/"
         val guid = "episode-12345"

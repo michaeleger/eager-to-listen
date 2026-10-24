@@ -34,7 +34,9 @@ data class RemotePodcast(
     val description: String = "",
     val rules: RemotePodcastRules = RemotePodcastRules(),
     val settingsUpdatedAt: Long = 0L,
-    val unsubscribedAt: Long? = null
+    val unsubscribedAt: Long? = null,
+    // 0 when the sync file predates this field
+    val subscribedAt: Long = 0L
 )
 
 data class RemoteEpisode(
@@ -89,7 +91,7 @@ interface SyncDatabaseOps {
         settingsUpdatedAt: Long
     ): Int
     suspend fun softUnsubscribe(id: String, timestamp: Long): Int
-    suspend fun clearUnsubscribed(id: String): Int
+    suspend fun clearUnsubscribed(id: String, subscribedAt: Long): Int
     suspend fun insertPodcast(podcast: Podcast)
     suspend fun getEpisodeById(id: String): Episode?
     suspend fun updateEpisodeSyncState(
@@ -144,17 +146,24 @@ class RoomSyncDatabaseOps(private val db: EagerDatabase) : SyncDatabaseOps {
         newsRetentionDays: Int,
         consecutivePlayLimit: Int,
         settingsUpdatedAt: Long
-    ): Int = db.podcastDao().updateFeedRules(
-        podcastId, priority, skipIntro, skipOutro, speed, autoAdd, maxEpisodes,
-        category, customDonationUrl, playOrderStrategy, newsRetentionDays,
-        consecutivePlayLimit, settingsUpdatedAt
-    )
+    ): Int {
+        val updated = db.podcastDao().updateFeedRules(
+            podcastId, priority, skipIntro, skipOutro, speed, autoAdd, maxEpisodes,
+            category, customDonationUrl, playOrderStrategy, newsRetentionDays,
+            consecutivePlayLimit, settingsUpdatedAt
+        )
+        // Feed moved off NEWS on another device: bring back the episodes it had aged out
+        if (playOrderStrategy != "NEWS") {
+            db.episodeDao().restoreExpiredNews(podcastId)
+        }
+        return updated
+    }
 
     override suspend fun softUnsubscribe(id: String, timestamp: Long): Int =
         db.podcastDao().softUnsubscribe(id, timestamp)
 
-    override suspend fun clearUnsubscribed(id: String): Int =
-        db.podcastDao().clearUnsubscribed(id)
+    override suspend fun clearUnsubscribed(id: String, subscribedAt: Long): Int =
+        db.podcastDao().clearUnsubscribed(id, subscribedAt)
 
     override suspend fun insertPodcast(podcast: Podcast) =
         db.podcastDao().insertPodcast(podcast)
@@ -230,6 +239,7 @@ object SyncSerializer {
                     put("author", p.author)
                     put("description", p.description)
                     put("settingsUpdatedAt", p.settingsUpdatedAt)
+                    put("subscribedAt", p.subscribedAt)
                     if (p.unsubscribedAt != null) {
                         put("unsubscribedAt", p.unsubscribedAt)
                     } else {
@@ -323,6 +333,7 @@ object SyncSerializer {
                 val author = obj.optString("author", "")
                 val description = obj.optString("description", "")
                 val settingsUpdatedAt = obj.optLong("settingsUpdatedAt", 0L)
+                val subscribedAt = obj.optLong("subscribedAt", 0L)
                 val unsubscribedAt = if (obj.has("unsubscribedAt") && !obj.isNull("unsubscribedAt")) {
                     obj.optLong("unsubscribedAt")
                 } else null
@@ -372,7 +383,8 @@ object SyncSerializer {
                         description = description,
                         rules = rules,
                         settingsUpdatedAt = settingsUpdatedAt,
-                        unsubscribedAt = unsubscribedAt
+                        unsubscribedAt = unsubscribedAt,
+                        subscribedAt = subscribedAt
                     )
                 )
             }
@@ -489,7 +501,11 @@ object SyncSerializer {
         // 1. Merge Podcasts
         for (rp in remoteState.podcasts) {
             val normalizedUrl = FeedUrl.normalize(rp.feedUrl)
+            val normalizedId = FeedUrl.normalize(rp.id)
+            // Older files predate subscribedAt; fall back to the previous proxy
+            val remoteSubscribedAt = if (rp.subscribedAt > 0L) rp.subscribedAt else rp.settingsUpdatedAt
             val existing = ops.getPodcastById(rp.id)
+                ?: (if (normalizedId.isNotBlank() && normalizedId != rp.id) ops.getPodcastById(normalizedId) else null)
                 ?: if (normalizedUrl.isNotBlank()) ops.getPodcastByFeedUrl(normalizedUrl) else null
 
             if (existing != null) {
@@ -523,9 +539,11 @@ object SyncSerializer {
                         }
                     }
                 } else {
+                    // Remote (re-)subscribed after our unsubscribe: take its subscribe time so the
+                    // two devices agree and the tombstone doesn't win on the next round trip
                     if (existing.unsubscribedAt != null) {
-                        if (rp.settingsUpdatedAt > existing.unsubscribedAt) {
-                            ops.clearUnsubscribed(existing.id)
+                        if (remoteSubscribedAt > existing.unsubscribedAt) {
+                            ops.clearUnsubscribed(existing.id, remoteSubscribedAt)
                         }
                     }
                 }
@@ -548,7 +566,7 @@ object SyncSerializer {
                         playOrderStrategy = rp.rules.playOrderStrategy,
                         newsRetentionDays = rp.rules.newsRetentionDays,
                         consecutivePlayLimit = rp.rules.consecutivePlayLimit,
-                        subscribedAt = rp.settingsUpdatedAt,
+                        subscribedAt = remoteSubscribedAt,
                         unsubscribedAt = rp.unsubscribedAt,
                         settingsUpdatedAt = rp.settingsUpdatedAt
                     )
@@ -571,7 +589,7 @@ object SyncSerializer {
                         playOrderStrategy = rp.rules.playOrderStrategy,
                         newsRetentionDays = rp.rules.newsRetentionDays,
                         consecutivePlayLimit = rp.rules.consecutivePlayLimit,
-                        subscribedAt = rp.settingsUpdatedAt,
+                        subscribedAt = remoteSubscribedAt,
                         unsubscribedAt = null,
                         settingsUpdatedAt = rp.settingsUpdatedAt
                     )
@@ -643,12 +661,15 @@ object SyncSerializer {
                     }
                 }
 
-                // Dismissed
-                if (re.dismissed) {
-                    newDismissed = true
-                    if (re.updatedAt > localEp.updatedAt || !localEp.isDismissed) {
-                        newDismissReason = re.dismissReason ?: localEp.dismissReason
+                // Dismissed: newer side wins, so an older copy can't re-dismiss an episode that was
+                // restored (feed moved off NEWS) or explicitly marked unplayed
+                if (re.dismissed != localEp.isDismissed) {
+                    if (re.updatedAt > localEp.updatedAt) {
+                        newDismissed = re.dismissed
+                        newDismissReason = re.dismissReason
                     }
+                } else if (re.dismissed && re.updatedAt > localEp.updatedAt) {
+                    newDismissReason = re.dismissReason ?: localEp.dismissReason
                 }
 
                 // Skips

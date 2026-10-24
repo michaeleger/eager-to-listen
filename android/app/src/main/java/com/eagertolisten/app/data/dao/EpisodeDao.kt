@@ -178,9 +178,19 @@ interface EpisodeDao {
         SET isDismissed = 1,
             dismissReason = 'EXPIRED_NEWS',
             updatedAt = :timestamp
-        WHERE podcastId = :podcastId AND isCompleted = 0 AND publishedAt > 0 AND publishedAt < :cutoffTimestamp
+        WHERE podcastId = :podcastId AND isCompleted = 0 AND isDismissed = 0 AND publishedAt > 0 AND publishedAt < :cutoffTimestamp
     """)
     suspend fun dismissExpiredNews(podcastId: String, cutoffTimestamp: Long, timestamp: Long = System.currentTimeMillis()): Int
+
+    // Undo dismissExpiredNews when a feed stops using the NEWS strategy
+    @Query("""
+        UPDATE episodes
+        SET isDismissed = 0,
+            dismissReason = NULL,
+            updatedAt = :timestamp
+        WHERE podcastId = :podcastId AND isDismissed = 1 AND dismissReason = 'EXPIRED_NEWS'
+    """)
+    suspend fun restoreExpiredNews(podcastId: String, timestamp: Long = System.currentTimeMillis()): Int
 
     @Query("""
         UPDATE episodes 
@@ -354,31 +364,6 @@ interface EpisodeDao {
         valueJson: String?,
         isLive: Boolean,
         liveStatus: String?
-    ): Int
-
-    @Query("""
-        UPDATE episodes 
-        SET isCompleted = 1, updatedAt = :updatedAt 
-        WHERE podcastId = :podcastId 
-          AND isCompleted = 0 
-          AND publishedAt < :cutoffTimestamp
-    """)
-    suspend fun purgeExpiredNewsEpisodesForPodcast(
-        podcastId: String,
-        cutoffTimestamp: Long,
-        updatedAt: Long = System.currentTimeMillis()
-    ): Int
-
-    @Query("""
-        UPDATE episodes 
-        SET isCompleted = 1, updatedAt = :updatedAt 
-        WHERE isCompleted = 0 
-          AND publishedAt < :cutoffTimestamp 
-          AND podcastId IN (SELECT id FROM podcasts WHERE playOrderStrategy = 'NEWS')
-    """)
-    suspend fun purgeAllExpiredNewsEpisodes(
-        cutoffTimestamp: Long,
-        updatedAt: Long = System.currentTimeMillis()
     ): Int
 
     @Query("UPDATE episodes SET localFilePath = :localPath, isDownloaded = :isDownloaded, downloadBytes = :bytes WHERE id = :episodeId")

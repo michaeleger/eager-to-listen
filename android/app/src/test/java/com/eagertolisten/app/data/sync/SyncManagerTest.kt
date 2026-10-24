@@ -94,9 +94,9 @@ class InMemorySyncDatabaseOps : SyncDatabaseOps {
         return 1
     }
 
-    override suspend fun clearUnsubscribed(id: String): Int {
+    override suspend fun clearUnsubscribed(id: String, subscribedAt: Long): Int {
         val p = podcasts[id] ?: return 0
-        podcasts[id] = p.copy(unsubscribedAt = null)
+        podcasts[id] = p.copy(unsubscribedAt = null, subscribedAt = subscribedAt)
         return 1
     }
 
@@ -269,6 +269,64 @@ class SyncManagerTest {
         val feedOnA = dbA.getPodcastById("feedF")
         assertNotNull(feedOnA)
         assertNotNull("Feed F must not be resurrected on Device A", feedOnA!!.unsubscribedAt)
+    }
+
+    @Test
+    fun testResubscribeSurvivesOlderUnsubscribeTombstone() = runBlocking {
+        // Device A unsubscribes at t=2000; Device B already merged that tombstone
+        dbA.insertPodcast(createSamplePodcast("feedR", "Feed R", unsubscribedAt = 2000L))
+        dbB.insertPodcast(createSamplePodcast("feedR", "Feed R", unsubscribedAt = 2000L))
+
+        // Device B re-subscribes at t=5000 (rules untouched, so settingsUpdatedAt stays at 1000)
+        dbB.clearUnsubscribed("feedR", 5000L)
+
+        // Device B merges Device A's stale tombstone: B must stay subscribed
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "deviceA", 2000L)))
+        assertNull("Re-subscribe must not be undone by an older tombstone", dbB.getPodcastById("feedR")!!.unsubscribedAt)
+
+        // Device A merges Device B's state: A picks up the re-subscribe
+        SyncSerializer.mergeState(dbA, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbB, "deviceB", 5000L)))
+        val feedOnA = dbA.getPodcastById("feedR")!!
+        assertNull("Device A should be re-subscribed", feedOnA.unsubscribedAt)
+        assertEquals(5000L, feedOnA.subscribedAt)
+
+        // And a further round trip back to B keeps both subscribed
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "deviceA", 6000L)))
+        assertNull(dbB.getPodcastById("feedR")!!.unsubscribedAt)
+    }
+
+    @Test
+    fun testOlderRemoteDismissalDoesNotOverrideNewerRestore() = runBlocking {
+        dbA.insertPodcast(createSamplePodcast("feedN", "Feed N"))
+        dbB.insertPodcast(createSamplePodcast("feedN", "Feed N"))
+
+        // Device A aged the episode out as news at t=2000
+        dbA.episodes["feedN::ep1"] = createSampleEpisode("feedN::ep1", "feedN", updatedAt = 2000L)
+            .copy(isDismissed = true, dismissReason = "EXPIRED_NEWS")
+        // Device B moved the feed off NEWS and restored it at t=3000
+        dbB.episodes["feedN::ep1"] = createSampleEpisode("feedN::ep1", "feedN", posSec = 10L, updatedAt = 3000L)
+
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "deviceA", 2000L)))
+        assertFalse("Older dismissal must not re-dismiss a newer restore", dbB.getEpisodeById("feedN::ep1")!!.isDismissed)
+
+        SyncSerializer.mergeState(dbA, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbB, "deviceB", 3000L)))
+        val epOnA = dbA.getEpisodeById("feedN::ep1")!!
+        assertFalse("Newer restore should propagate", epOnA.isDismissed)
+        assertNull(epOnA.dismissReason)
+    }
+
+    @Test
+    fun testNewerRemoteDismissalApplies() = runBlocking {
+        dbA.insertPodcast(createSamplePodcast("feedD", "Feed D"))
+        dbB.insertPodcast(createSamplePodcast("feedD", "Feed D"))
+        dbA.episodes["feedD::ep1"] = createSampleEpisode("feedD::ep1", "feedD", updatedAt = 4000L)
+            .copy(isDismissed = true, dismissReason = "UNPLAYABLE")
+        dbB.episodes["feedD::ep1"] = createSampleEpisode("feedD::ep1", "feedD", updatedAt = 1000L)
+
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "deviceA", 4000L)))
+        val epOnB = dbB.getEpisodeById("feedD::ep1")!!
+        assertTrue(epOnB.isDismissed)
+        assertEquals("UNPLAYABLE", epOnB.dismissReason)
     }
 
     @Test

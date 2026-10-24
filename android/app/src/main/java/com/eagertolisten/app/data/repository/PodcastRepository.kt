@@ -428,9 +428,12 @@ class PodcastRepository(context: Context) {
             consecutivePlayLimit = consecutivePlayLimit
         )
         if (playOrderStrategy == "NEWS") {
-            val cutoff = System.currentTimeMillis() - (newsRetentionDays.coerceAtLeast(1).toLong() * 86_400_000L)
-            episodeDao.purgeExpiredNewsEpisodesForPodcast(podcastId, cutoff, System.currentTimeMillis())
+            val retentionDays = if (newsRetentionDays > 0) newsRetentionDays else getDefaultNewsRetentionDays()
+            val cutoff = System.currentTimeMillis() - (retentionDays.toLong() * 86_400_000L)
+            episodeDao.dismissExpiredNews(podcastId, cutoff, System.currentTimeMillis())
             queueDao.removeExpiredEpisodesForPodcast(podcastId, cutoff)
+        } else {
+            episodeDao.restoreExpiredNews(podcastId, System.currentTimeMillis())
         }
         if (autoAdd) {
             generateProgrammedQueue()
@@ -523,10 +526,10 @@ class PodcastRepository(context: Context) {
             if (podcast.playOrderStrategy == "NEWS") {
                 val retentionDays = if (podcast.newsRetentionDays > 0) podcast.newsRetentionDays else defaultNewsDays
                 val cutoff = now - (retentionDays.toLong() * 86_400_000L)
-                val purgedEpisodes = episodeDao.purgeExpiredNewsEpisodesForPodcast(podcast.id, cutoff, now)
+                val dismissedEpisodes = episodeDao.dismissExpiredNews(podcast.id, cutoff, now)
                 val removedQueue = queueDao.removeExpiredEpisodesForPodcast(podcast.id, cutoff)
-                if (purgedEpisodes > 0 || removedQueue > 0) {
-                    Log.i("PodcastRepository", "Purged expired news for '${podcast.title}': $purgedEpisodes episodes marked played, $removedQueue removed from queue (cutoff: $cutoff)")
+                if (dismissedEpisodes > 0 || removedQueue > 0) {
+                    Log.i("PodcastRepository", "Purged expired news for '${podcast.title}': $dismissedEpisodes episodes dismissed, $removedQueue removed from queue (cutoff: $cutoff)")
                 }
             }
         }
@@ -741,7 +744,11 @@ class PodcastRepository(context: Context) {
     }
 
     suspend fun unsubscribe(podcastId: String) = withContext(Dispatchers.IO) {
-        val cleanId = com.eagertolisten.app.data.model.FeedUrl.normalize(podcastId).ifBlank { podcastId.trim() }
+        // Look up by the stored ID first; fall back to the normalized feed URL for callers passing a raw URL
+        val podcast = podcastDao.getPodcastByIdSync(podcastId)
+            ?: podcastDao.getPodcastByFeedUrlSync(com.eagertolisten.app.data.model.FeedUrl.normalize(podcastId))
+            ?: return@withContext
+        val cleanId = podcast.id
         podcastDao.softUnsubscribe(cleanId)
         val queueItems = queueDao.getAllQueueItemsSync().filter { it.podcastId == cleanId }
         val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(appContext)
