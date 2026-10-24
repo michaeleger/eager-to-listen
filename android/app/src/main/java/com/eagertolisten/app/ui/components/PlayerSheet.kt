@@ -164,7 +164,7 @@ fun PlayerSheet(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = ForestGreenElevated,
-                    modifier = Modifier.clickable { showSpeedDialog = true }
+                    modifier = if (!episode.isLive) Modifier.clickable { showSpeedDialog = true } else Modifier
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -173,13 +173,13 @@ fun PlayerSheet(
                         Icon(
                             imageVector = Icons.Default.Speed,
                             contentDescription = "Speed",
-                            tint = BurntOrange,
+                            tint = if (episode.isLive) TextSecondary else BurntOrange,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${playbackState.playbackSpeed}x",
-                            color = TextPrimary,
+                            text = if (episode.isLive) "Live: 1.0x" else "${playbackState.playbackSpeed}x",
+                            color = if (episode.isLive) TextSecondary else TextPrimary,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                         )
                     }
@@ -887,12 +887,23 @@ fun PlayerSheet(
 
     // Speed picker bottom sheet / dialog
     if (showSpeedDialog) {
+        val availableSpeeds = (speeds + playbackState.playbackSpeed).distinct().sorted()
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showSpeedDialog = false },
-            title = { Text("Playback Speed", color = TextPrimary) },
+            title = {
+                Column {
+                    Text("Playback Speed", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Applies to every episode of ${episode.podcastTitle}",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    speeds.forEach { spd ->
+                    availableSpeeds.forEach { spd ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

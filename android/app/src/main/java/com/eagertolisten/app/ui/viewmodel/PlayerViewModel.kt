@@ -95,6 +95,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setSpeed(speed: Float) {
+        val currentEp = PlaybackStateManager.state.value.currentEpisode
+        if (currentEp != null && !currentEp.isLive) {
+            viewModelScope.launch {
+                repository.updatePodcastSpeed(currentEp.podcastId, speed)
+            }
+        }
         PlaybackController.setSpeed(speed)
     }
 

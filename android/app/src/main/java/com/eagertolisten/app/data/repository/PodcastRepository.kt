@@ -738,6 +738,10 @@ class PodcastRepository(context: Context) {
         generateProgrammedQueue()
     }
 
+    suspend fun updatePodcastSpeed(podcastId: String, speed: Float) = withContext(Dispatchers.IO) {
+        podcastDao.updatePodcastSpeed(podcastId, speed, System.currentTimeMillis())
+    }
+
     suspend fun permanentlyDeleteRemovedPodcasts() = withContext(Dispatchers.IO) {
         podcastDao.deletePermanentlyRemovedPodcasts()
     }

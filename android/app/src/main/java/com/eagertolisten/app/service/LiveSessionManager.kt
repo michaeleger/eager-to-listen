@@ -10,7 +10,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Manages live podcast listening sessions.
- * Rule: If restarting or returning to the app after not listening for >= 60 minutes (1 hour) while a live
+ * Rule: If restarting or returning to the app after not listening for >= 90 minutes while a live
  * show was tuned in, the app automatically reverts playback back to the top of the main programmed playlist.
  * (Thinking: when the live show you tuned into is over, it defaults back to your normal playlist).
  */
@@ -22,8 +22,8 @@ object LiveSessionManager {
     private const val KEY_LAST_IS_LIVE = "last_is_live"
     private const val KEY_LAST_LISTENING_TIME = "last_listening_time"
 
-    // 60 minutes (1 hour) inactivity threshold (in milliseconds)
-    const val LIVE_INACTIVITY_TIMEOUT_MS = 60L * 60L * 1000L
+    // 90 minutes inactivity threshold (in milliseconds)
+    const val LIVE_INACTIVITY_TIMEOUT_MS = 90L * 60L * 1000L
 
     fun recordPlaybackActive(context: Context, episode: Episode) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -42,20 +42,29 @@ object LiveSessionManager {
             .apply()
     }
 
-    fun isLiveSessionExpired(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun isLiveSessionExpired(
+        prefs: android.content.SharedPreferences,
+        currentTimeMs: Long = System.currentTimeMillis()
+    ): Boolean {
         val isLive = prefs.getBoolean(KEY_LAST_IS_LIVE, false)
         if (!isLive) return false
 
         val lastTime = prefs.getLong(KEY_LAST_LISTENING_TIME, 0L)
         if (lastTime <= 0L) return false
 
-        val elapsed = System.currentTimeMillis() - lastTime
+        val elapsed = currentTimeMs - lastTime
         val expired = elapsed >= LIVE_INACTIVITY_TIMEOUT_MS
         if (expired) {
-            Log.i(TAG, "Live podcast session expired ($elapsed ms >= $LIVE_INACTIVITY_TIMEOUT_MS ms). Show is presumed over.")
+            try {
+                Log.i(TAG, "Live podcast session expired ($elapsed ms >= $LIVE_INACTIVITY_TIMEOUT_MS ms). Show is presumed over.")
+            } catch (_: Throwable) {}
         }
         return expired
+    }
+
+    fun isLiveSessionExpired(context: Context, currentTimeMs: Long = System.currentTimeMillis()): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return isLiveSessionExpired(prefs, currentTimeMs)
     }
 
     fun clearLiveSession(context: Context) {
