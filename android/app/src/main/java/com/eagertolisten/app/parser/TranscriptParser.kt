@@ -164,7 +164,7 @@ class TranscriptParser {
                     val seconds = parts[1].toDouble()
                     ((minutes * 60 + seconds) * 1000).toLong()
                 }
-                else -> (normalized.toDoubleOrNull() ?: 0.0 * 1000).toLong()
+                else -> ((normalized.toDoubleOrNull() ?: 0.0) * 1000).toLong()
             }
         } catch (_: Exception) {
             return 0L

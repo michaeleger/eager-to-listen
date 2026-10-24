@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="external" path="Podcasts" />
+    <exclude domain="file" path="downloads" />
+    <exclude domain="sharedpref" path="eager_nwc_prefs.xml" />
+</full-backup-content>
