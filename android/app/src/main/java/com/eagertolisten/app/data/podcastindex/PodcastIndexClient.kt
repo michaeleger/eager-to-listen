@@ -56,8 +56,8 @@ class PodcastIndexClient(private val context: Context) {
         val PODCAST_NO_AGENDA = SearchResult(
             title = "No Agenda Show",
             author = "Adam Curry & John C. Dvorak",
-            feedUrl = "https://feed.nashownotes.com/rss.xml",
-            artworkUrl = "https://avatar.noagendanotes.com/noagenda.png",
+            feedUrl = "https://feeds.noagendaassets.com/noagenda.xml",
+            artworkUrl = "https://noagendaassets.com/enc/1792709117.49_na-1914-art-feed.jpg",
             genres = listOf("News", "Current Events", "Podcasting 2.0", "Featured")
         )
 
@@ -67,22 +67,22 @@ class PodcastIndexClient(private val context: Context) {
             SearchResult(
                 title = "Podcasting 2.0",
                 author = "Adam Curry & Dave Jones",
-                feedUrl = "http://mp3s.nashownotes.com/pc20rss.xml",
-                artworkUrl = "https://podcastindex.org/images/podcastindex-logo-badge.png",
+                feedUrl = "https://feeds.podcastindex.org/pc20.xml",
+                artworkUrl = "https://noagendaassets.com/enc/1684513486.722_pcifeedimage.png",
                 genres = listOf("Technology", "PodcastIndex.org", "Featured")
             ),
             SearchResult(
                 title = "Huberman Lab",
                 author = "Dr. Andrew Huberman",
                 feedUrl = "https://feeds.megaphone.fm/hubermanlab",
-                artworkUrl = "https://artwork.captivate.fm/hubermanlab.jpg",
+                artworkUrl = "https://megaphone.imgix.net/podcasts/042e6144-725e-11ec-a75d-c38f702aecad/image/ee4f0b7b466ca35620792970d9bce2d2.jpg?ixlib=rails-4.3.1&max-w=3000&max-h=3000&fit=crop&auto=format,compress",
                 genres = listOf("Science", "Health & Fitness", "Featured")
             ),
             SearchResult(
                 title = "The Peter Attia Drive",
                 author = "Peter Attia, MD",
                 feedUrl = "https://peterattiadrive.libsyn.com/rss",
-                artworkUrl = "https://ssl-static.libsyn.com/p/assets/5/4/6/1/546114a1f592c300/PeterAttiaDrive-PodcastCoverArt-3000x3000.jpg",
+                artworkUrl = "https://static.libsyn.com/p/assets/e/d/6/0/ed60b3def918dca516c3140a3186d450/the_Drive_public.png",
                 genres = listOf("Health & Fitness", "Medicine", "Featured")
             )
         )

@@ -26,6 +26,11 @@ data class PodcastHighWaterMark(
     val maxPub: Long
 )
 
+data class PodcastLastTurn(
+    val podcastId: String,
+    val lastTurn: Long
+)
+
 @Dao
 interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC")
@@ -163,6 +168,13 @@ interface EpisodeDao {
         GROUP BY podcastId
     """)
     suspend fun getAllHeardHighWaterMarks(): List<PodcastHighWaterMark>
+
+    @Query("""
+        SELECT podcastId, MAX(CASE WHEN completedAt IS NOT NULL AND completedAt > 0 THEN completedAt WHEN skippedAt IS NOT NULL AND skippedAt > 0 THEN skippedAt ELSE 0 END) AS lastTurn
+        FROM episodes
+        GROUP BY podcastId
+    """)
+    suspend fun getAllLastTurns(): List<PodcastLastTurn>
 
     @Query("""
         SELECT MAX(publishedAt) 

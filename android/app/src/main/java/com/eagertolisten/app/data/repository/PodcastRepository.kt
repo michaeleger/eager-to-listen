@@ -6,9 +6,14 @@ import androidx.room.withTransaction
 import com.eagertolisten.app.data.EagerDatabase
 import com.eagertolisten.app.data.model.Chapter
 import com.eagertolisten.app.data.model.Episode
+import com.eagertolisten.app.data.model.PlayOrderStrategy
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.data.model.QueueItem
 import com.eagertolisten.app.data.model.TranscriptCue
+import com.eagertolisten.app.domain.EngineEpisode
+import com.eagertolisten.app.domain.EngineFeed
+import com.eagertolisten.app.domain.PinnedItem
+import com.eagertolisten.app.domain.buildQueue
 import com.eagertolisten.app.parser.ChapterParser
 import com.eagertolisten.app.parser.FeedParser
 import com.eagertolisten.app.parser.TranscriptParser
@@ -22,20 +27,22 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class QueueSortRule {
     PROGRAMMED_FAIR,          // Smart Fair Interleaved Order (Play Orders + Feed Limit above priority)
     PRIORITY_THEN_DATE_ASC,   // Radio U Classic: Priority 1 first, then oldest to newest
     PRIORITY_THEN_DATE_DESC,  // Priority 1 first, then newest
     DATE_DESC,                // Newest first regardless of priority
-    DATE_ASC,                 // Oldest first
-    MANUAL                    // Custom drag-and-drop order
+    DATE_ASC                  // Oldest first
 }
 
 class PodcastRepository(context: Context) {
@@ -46,6 +53,9 @@ class PodcastRepository(context: Context) {
     private val episodeDao = db.episodeDao()
     private val queueDao = db.queueDao()
     private val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
+
+    private val rebuildMutex = Mutex()
+    private val rebuildRequestedAfterCurrent = AtomicBoolean(false)
 
     init {
         if (!initCleanupDone) {
@@ -458,11 +468,6 @@ class PodcastRepository(context: Context) {
         queueDao.clearQueue()
     }
 
-    suspend fun reorderQueue(orderedEpisodeIds: List<String>) = withContext(Dispatchers.IO) {
-        setSavedSortRule(QueueSortRule.MANUAL)
-        queueDao.reorderQueue(orderedEpisodeIds)
-    }
-
     suspend fun purgeExpiredNewsEpisodes() = withContext(Dispatchers.IO) {
         val podcasts = podcastDao.getAllPodcastsSync()
         val defaultNewsDays = getDefaultNewsRetentionDays()
@@ -481,163 +486,114 @@ class PodcastRepository(context: Context) {
         }
     }
 
-    // Fair Interleaving Queue Algorithm:
-    // Considers 4 Play Orders:
-    // 1. Chronological (Serial stories & classes: oldest unplayed first)
-    // 2. Reverse Chronological (Newest unplayed first)
-    // 3. News (Fresh updates first; last X days unplayed in chronological order)
-    // 4. Evergreen / Knowledge (Newest unplayed first, then next newest unplayed)
-    //
-    // Feed Play Limit ("Anti-Binge" Diversity):
-    // Taken at a HIGHER LEVEL than importance (priority): Each feed can contribute at most
-    // its consecutive episode limit (e.g. 1) before the queue engine rotates to other eligible feeds.
-    // Within each tier, feeds are ordered by least-recently completed podcast first so feeds rotate
-    // fairly across app restarts and feed refreshes rather than resetting alphabetically.
     suspend fun generateProgrammedQueue() = withContext(Dispatchers.IO) {
+        if (rebuildMutex.isLocked) {
+            rebuildRequestedAfterCurrent.set(true)
+            return@withContext
+        }
+        rebuildMutex.withLock {
+            do {
+                rebuildRequestedAfterCurrent.set(false)
+                generateProgrammedQueueInternal()
+            } while (rebuildRequestedAfterCurrent.get())
+        }
+    }
+
+    private suspend fun generateProgrammedQueueInternal() {
         purgeExpiredNewsEpisodes()
 
         val podcasts = podcastDao.getAllPodcastsSync()
-        if (podcasts.isEmpty()) return@withContext
+        if (podcasts.isEmpty()) return
 
         val globalLimit = getGlobalConsecutivePlayLimit()
         val defaultNewsDays = getDefaultNewsRetentionDays()
         val now = System.currentTimeMillis()
 
-        // Track when each podcast last had an episode completed so same-tier feeds rotate fairly
-        val recentPlayed = episodeDao.getRecentPlayedEpisodesSync(200)
-        val lastPlayedByPodcast = mutableMapOf<String, Long>()
-        for (ep in recentPlayed) {
-            val prev = lastPlayedByPodcast[ep.podcastId] ?: 0L
-            if (ep.updatedAt > prev) {
-                lastPlayedByPodcast[ep.podcastId] = ep.updatedAt
+        val highWaterMarks = episodeDao.getAllHeardHighWaterMarks().associate { it.podcastId to it.maxPub }
+        val lastTurns = episodeDao.getAllLastTurns().associate { it.podcastId to it.lastTurn }
+
+        val engineFeeds = podcasts.map { p ->
+            val strategy = try {
+                PlayOrderStrategy.valueOf(p.playOrderStrategy)
+            } catch (_: Exception) {
+                PlayOrderStrategy.EVERGREEN
             }
+            EngineFeed(
+                id = p.id,
+                title = p.title,
+                priority = p.priority,
+                strategy = strategy,
+                newsRetentionDays = p.newsRetentionDays,
+                consecutiveLimit = p.consecutivePlayLimit,
+                maxInQueue = p.maxEpisodesInQueue,
+                autoAdd = p.autoAddToQueue,
+                lastTurnAt = lastTurns[p.id] ?: 0L,
+                subscribedAt = p.subscribedAt,
+                heardHighWaterMark = highWaterMarks[p.id] ?: 0L
+            )
         }
 
-        // Identify currently playing or top in-progress episode to keep pinned at #1
-        val existingQueue = queueDao.getQueueEpisodesSync()
-        val activeStateEp = PlaybackStateManager.state.value.currentEpisode?.let { current ->
-            episodeDao.getEpisodeByIdSync(current.id) ?: current
+        val podcastIds = podcasts.map { it.id }
+        val eligibleProjections = episodeDao.getEligibleEpisodesForQueueSync(podcastIds)
+        val engineEpisodes = eligibleProjections.map { ep ->
+            EngineEpisode(
+                id = ep.id,
+                feedId = ep.podcastId,
+                publishedAt = ep.publishedAt,
+                feedOrder = ep.feedOrder,
+                positionSec = ep.playbackPositionSeconds,
+                isCompleted = ep.isCompleted,
+                isDismissed = ep.isDismissed,
+                skippedAt = ep.skippedAt,
+                skipCount = ep.skipCount
+            )
         }
-        val pinnedEpisode: Episode? = when {
-            activeStateEp != null && !activeStateEp.isCompleted && !activeStateEp.isLive && activeStateEp.liveStatus == null -> activeStateEp
-            existingQueue.firstOrNull()?.let { !it.isCompleted && !it.isLive && it.liveStatus == null && it.playbackPositionSeconds > 0 } == true -> existingQueue.first()
+
+        val pinnedQueueItems = queueDao.getPinnedItemsSync()
+        val enginePinned = pinnedQueueItems.map {
+            PinnedItem(episodeId = it.episodeId, manualIndex = it.manualIndex ?: 0)
+        }
+
+        val activeStateEp = PlaybackStateManager.state.value.currentEpisode
+        val existingQueue = queueDao.getQueueEpisodesSync()
+        val nowPlayingId = when {
+            activeStateEp != null && !activeStateEp.isCompleted && !activeStateEp.isDismissed && !activeStateEp.isLive -> activeStateEp.id
+            existingQueue.firstOrNull()?.let { !it.isCompleted && !it.isDismissed && !it.isLive && it.playbackPositionSeconds > 0 } == true -> existingQueue.first().id
             else -> null
         }
 
-        // Feeds that have autoAddToQueue enabled
-        val eligibleFeeds = podcasts.filter { it.autoAddToQueue }
-        val feedEpisodeQueues = mutableMapOf<String, MutableList<Episode>>()
-        val feedLimits = mutableMapOf<String, Int>()
-        val feedTiers = mutableMapOf<String, Int>() // 0 for fresh news, 1-5 for normal priority
+        val queuedIds = buildQueue(
+            feeds = engineFeeds,
+            episodes = engineEpisodes,
+            pinned = enginePinned,
+            nowPlayingId = nowPlayingId,
+            now = now,
+            globalLimit = globalLimit,
+            defaultNewsDays = defaultNewsDays
+        )
 
-        for (podcast in eligibleFeeds) {
-            val allEpisodes = episodeDao.getEpisodesForPodcastSync(podcast.id)
-            val unplayed = allEpisodes.filter { !it.isCompleted && !it.isLive && it.liveStatus == null && it.id != pinnedEpisode?.id }
-            if (unplayed.isEmpty()) continue
+        val epFeedMap = eligibleProjections.associate { it.id to it.podcastId }
+        val pinnedMap = pinnedQueueItems.associateBy { it.episodeId }
 
-            val strategy = try {
-                com.eagertolisten.app.data.model.PlayOrderStrategy.valueOf(podcast.playOrderStrategy)
-            } catch (_: Exception) {
-                com.eagertolisten.app.data.model.PlayOrderStrategy.EVERGREEN
-            }
-
-            val retentionDays = if (podcast.newsRetentionDays > 0) podcast.newsRetentionDays else defaultNewsDays
-            val newsCutoff = now - (retentionDays.toLong() * 86_400_000L)
-
-            val sortedUnplayed = when (strategy) {
-                com.eagertolisten.app.data.model.PlayOrderStrategy.CHRONOLOGICAL -> {
-                    // Serial stories & classes: oldest unplayed first -> newest
-                    unplayed.sortedBy { it.publishedAt }
-                }
-                com.eagertolisten.app.data.model.PlayOrderStrategy.REVERSE_CHRONOLOGICAL -> {
-                    // Newest first
-                    unplayed.sortedByDescending { it.publishedAt }
-                }
-                com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS -> {
-                    // Updates first: only within the last X days, in chronological order (morning before evening)
-                    val (fresh, expired) = unplayed.partition { it.publishedAt >= newsCutoff }
-                    for (exp in expired) {
-                        episodeDao.setEpisodeCompleted(exp.id, true, now)
-                        queueDao.removeEpisodeFromQueue(exp.id)
-                    }
-                    fresh.sortedBy { it.publishedAt }
-                }
-                com.eagertolisten.app.data.model.PlayOrderStrategy.EVERGREEN -> {
-                    // Evergreen: newest unplayed first, then next newest
-                    unplayed.sortedByDescending { it.publishedAt }
-                }
-            }
-
-            if (sortedUnplayed.isEmpty()) continue
-
-            val maxSlots = if (podcast.maxEpisodesInQueue > 0) {
-                val reserved = if (pinnedEpisode?.podcastId == podcast.id) 1 else 0
-                (podcast.maxEpisodesInQueue - reserved).coerceAtLeast(0)
-            } else {
-                Int.MAX_VALUE
-            }
-            val limitedEpisodes = sortedUnplayed.take(maxSlots).toMutableList()
-
-            if (limitedEpisodes.isNotEmpty()) {
-                feedEpisodeQueues[podcast.id] = limitedEpisodes
-                feedLimits[podcast.id] = if (podcast.consecutivePlayLimit > 0) podcast.consecutivePlayLimit else globalLimit
-                // News feeds with fresh unplayed items get Tier 0 to play updates first
-                feedTiers[podcast.id] = if (strategy == com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS) 0 else podcast.priority
-            }
-        }
-
-        // Interleave feeds: Round-robin by tier taking up to feedLimit from each feed
-        val programmedEpisodes = mutableListOf<Episode>()
-        if (pinnedEpisode != null) {
-            programmedEpisodes.add(pinnedEpisode)
-        }
-
-        val podcastsById = podcasts.associateBy { it.id }
-        var isFirstPass = true
-
-        while (feedEpisodeQueues.values.any { it.isNotEmpty() }) {
-            val activeFeedIds = feedEpisodeQueues.filter { it.value.isNotEmpty() }.keys.sortedWith(
-                compareBy<String> { feedTiers[it] ?: 3 }
-                    .thenBy { id -> lastPlayedByPodcast[id] ?: 0L }
-                    .thenBy { id -> podcastsById[id]?.title ?: "" }
-            )
-
-            for (feedId in activeFeedIds) {
-                val epList = feedEpisodeQueues[feedId] ?: continue
-                val limit = feedLimits[feedId] ?: globalLimit
-                // If this feed already has the pinned #1 episode, reduce its first-pass consecutive quota by 1
-                val effectiveLimit = if (isFirstPass && pinnedEpisode?.podcastId == feedId) {
-                    (limit - 1).coerceAtLeast(0)
-                } else {
-                    limit
-                }
-                val countToTake = minOf(effectiveLimit, epList.size)
-                for (i in 0 until countToTake) {
-                    if (epList.isNotEmpty()) {
-                        programmedEpisodes.add(epList.removeAt(0))
-                    }
-                }
-            }
-            isFirstPass = false
-        }
-
-        // Apply programmed items to queue atomically inside a transaction
-        val newItems = programmedEpisodes.mapIndexed { index, ep ->
+        val newItems = queuedIds.mapIndexed { index, epId ->
+            val pinned = pinnedMap[epId]
             QueueItem(
-                episodeId = ep.id,
-                podcastId = ep.podcastId,
-                orderIndex = index
+                episodeId = epId,
+                podcastId = epFeedMap[epId] ?: activeStateEp?.takeIf { it.id == epId }?.podcastId ?: "",
+                orderIndex = index,
+                isManual = pinned != null,
+                manualIndex = pinned?.manualIndex
             )
         }
+
         db.withTransaction {
             queueDao.clearQueue()
             queueDao.insertQueueItems(newItems)
             queueDao.purgeLiveItemsFromQueue()
         }
 
-        // If user selected a non-default sort rule, apply it over the refreshed queue
         val savedRule = getSavedSortRule()
-        if (savedRule != QueueSortRule.PROGRAMMED_FAIR && savedRule != QueueSortRule.MANUAL) {
+        if (savedRule != QueueSortRule.PROGRAMMED_FAIR) {
             applySortRuleToCurrentQueue(savedRule)
         }
     }
@@ -655,31 +611,45 @@ class PodcastRepository(context: Context) {
     }
 
     private suspend fun applySortRuleToCurrentQueue(rule: QueueSortRule) {
-        val currentEpisodes = queueDao.getQueueEpisodesSync()
-        if (currentEpisodes.isEmpty()) return
+        val allItems = queueDao.getAllQueueItemsSync()
+        if (allItems.isEmpty()) return
+
+        val (protectedItems, programmedItems) = allItems.partition { it.isManual || it.orderIndex == 0 }
+        if (programmedItems.isEmpty()) return
+
+        val programmedEpisodeIds = programmedItems.map { it.episodeId }.toSet()
+        val allEpisodes = queueDao.getQueueEpisodesSync()
+        val programmedEpisodes = allEpisodes.filter { it.id in programmedEpisodeIds }
 
         val podcastsMap = podcastDao.getAllPodcastsSync().associateBy { it.id }
 
-        val sorted = when (rule) {
-            QueueSortRule.PROGRAMMED_FAIR -> currentEpisodes
+        val sortedProgrammed = when (rule) {
+            QueueSortRule.PROGRAMMED_FAIR -> programmedEpisodes
             QueueSortRule.PRIORITY_THEN_DATE_ASC -> {
-                currentEpisodes.sortedWith(
+                programmedEpisodes.sortedWith(
                     compareBy<Episode> { podcastsMap[it.podcastId]?.priority ?: 3 }
                         .thenBy { it.publishedAt }
                 )
             }
             QueueSortRule.PRIORITY_THEN_DATE_DESC -> {
-                currentEpisodes.sortedWith(
+                programmedEpisodes.sortedWith(
                     compareBy<Episode> { podcastsMap[it.podcastId]?.priority ?: 3 }
                         .thenByDescending { it.publishedAt }
                 )
             }
-            QueueSortRule.DATE_DESC -> currentEpisodes.sortedByDescending { it.publishedAt }
-            QueueSortRule.DATE_ASC -> currentEpisodes.sortedBy { it.publishedAt }
-            QueueSortRule.MANUAL -> currentEpisodes
+            QueueSortRule.DATE_DESC -> programmedEpisodes.sortedByDescending { it.publishedAt }
+            QueueSortRule.DATE_ASC -> programmedEpisodes.sortedBy { it.publishedAt }
         }
 
-        queueDao.reorderQueue(sorted.map { it.id })
+        val programmedItemMap = programmedItems.associateBy { it.episodeId }
+        val newOrderedProgrammedItems = sortedProgrammed.mapNotNull { programmedItemMap[it.id] }
+
+        val finalOrdered = protectedItems + newOrderedProgrammedItems
+        val reindexed = finalOrdered.mapIndexed { idx, item -> item.copy(orderIndex = idx) }
+        db.withTransaction {
+            queueDao.clearQueue()
+            queueDao.insertQueueItems(reindexed)
+        }
     }
 
     suspend fun updatePlaybackProgress(episodeId: String, positionSec: Long, isCompleted: Boolean) = withContext(Dispatchers.IO) {

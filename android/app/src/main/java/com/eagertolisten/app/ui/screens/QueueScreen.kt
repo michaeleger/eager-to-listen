@@ -272,7 +272,9 @@ fun QueueScreen(
             ) {
                 itemsIndexed(displayedEpisodes, key = { _, ep -> ep.id }) { index, ep ->
                     val podcast = podcastsMap[ep.podcastId]
-                    val strategyBadge = if (filterMode == QueueFilterMode.QUEUE && podcast != null) {
+                    val strategyBadge = if (ep.skipCount > 0 && ep.skippedAt != null) {
+                        "Skipped"
+                    } else if (filterMode == QueueFilterMode.QUEUE && podcast != null) {
                         when (podcast.playOrderStrategy) {
                             "CHRONOLOGICAL" -> "Serial"
                             "NEWS" -> "News"
