@@ -31,6 +31,47 @@ let feedRefreshCount = 0;
 let autoSyncTimer = null;
 
 // ----------------------------------------------------
+// SECURITY SANITIZATION HELPERS (XSS DEFENSE)
+// ----------------------------------------------------
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeHtml(dirtyHtml) {
+  if (!dirtyHtml) return '';
+  const temp = document.createElement('div');
+  temp.innerHTML = dirtyHtml;
+  
+  const blockedTags = ['script', 'iframe', 'object', 'embed', 'link', 'style', 'form', 'input', 'button', 'meta', 'base'];
+  blockedTags.forEach(tag => {
+    const elements = temp.getElementsByTagName(tag);
+    for (let i = elements.length - 1; i >= 0; i--) {
+      elements[i].parentNode.removeChild(elements[i]);
+    }
+  });
+
+  const allElements = temp.getElementsByTagName('*');
+  for (let i = 0; i < allElements.length; i++) {
+    const el = allElements[i];
+    const attrs = Array.from(el.attributes);
+    for (const attr of attrs) {
+      const name = attr.name.toLowerCase();
+      const val = attr.value.toLowerCase().trim();
+      if (name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('data:text/html')) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+  return temp.innerHTML;
+}
+
+// ----------------------------------------------------
 // ONE-HANDED MOBILE NOTIFICATIONS & CONFIRMATIONS
 // ----------------------------------------------------
 let toastTimeout = null;
@@ -68,7 +109,7 @@ export function showToast(message, type = 'info', duration = 2600) {
 
   toast.innerHTML = `
     <span class="toast-icon"><i data-lucide="${iconName}"></i></span>
-    <span class="toast-text">${message}</span>
+    <span class="toast-text">${escapeHtml(message)}</span>
   `;
 
   // Tap to dismiss immediately (one-handed convenience)
@@ -869,11 +910,11 @@ function renderQueue() {
       <div class="drag-handle" title="Shift Item">
         <i data-lucide="menu"></i>
       </div>
-      <img src="${item.coverArt}" alt="Podcast Cover" class="queue-item-image">
+      <img src="${escapeHtml(item.coverArt)}" alt="Podcast Cover" class="queue-item-image">
       <div class="queue-item-details">
-        <h4>${item.title}</h4>
+        <h4>${escapeHtml(item.title)}</h4>
         <div class="podcast-meta">
-          <span>${item.podcastTitle}</span>
+          <span>${escapeHtml(item.podcastTitle)}</span>
           <span class="priority-badge priority-${item.podcastPriority}">${pName}</span>
         </div>
       </div>
@@ -946,8 +987,8 @@ function renderSubscriptions() {
     const settings = qm.getPodcastSettings(sub.url);
 
     card.innerHTML = `
-      <img src="${sub.image}" alt="${sub.title}" class="podcast-card-img" onerror="this.src='https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=150&h=150&fit=crop'">
-      <h4>${sub.title}</h4>
+      <img src="${escapeHtml(sub.image)}" alt="${escapeHtml(sub.title)}" class="podcast-card-img" onerror="this.src='https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=150&h=150&fit=crop'">
+      <h4>${escapeHtml(sub.title)}</h4>
       <div class="podcast-priority-dot p-dot-${settings.priority}" title="Priority: ${settings.priority}"></div>
     `;
 
@@ -999,10 +1040,10 @@ function openPodcastDetail(podcast) {
     liveCard.style.background = 'rgba(239, 68, 68, 0.1)';
     liveCard.innerHTML = `
       <div class="episode-row-header">
-        <h5>${podcast.liveItem.title}</h5>
+        <h5>${escapeHtml(podcast.liveItem.title)}</h5>
         <span class="badge badge-danger" style="background:#ef4444; color:#fff; font-weight:bold; padding:2px 8px; border-radius:4px;">LIVE NOW</span>
       </div>
-      <p class="episode-row-desc">${podcast.liveItem.description || 'Live stream broadcast is currently on air.'}</p>
+      <p class="episode-row-desc">${sanitizeHtml(podcast.liveItem.description || 'Live stream broadcast is currently on air.')}</p>
       <div class="episode-row-actions">
         <div class="ep-badges">
           <span class="badge badge-danger">Live Beacon Active</span>
@@ -1030,10 +1071,10 @@ function openPodcastDetail(podcast) {
 
     row.innerHTML = `
       <div class="episode-row-header">
-        <h5>${ep.title}</h5>
+        <h5>${escapeHtml(ep.title)}</h5>
         <span class="episode-row-time">${dateStr}</span>
       </div>
-      <p class="episode-row-desc">${ep.description}</p>
+      <p class="episode-row-desc">${sanitizeHtml(ep.description)}</p>
       <div class="episode-row-actions">
         <div class="ep-badges">
           <span class="badge">${ep.duration}</span>
@@ -1140,13 +1181,13 @@ async function performSearch() {
       const isSubbed = subscriptions.some(s => s.url === item.feedUrl);
 
       card.innerHTML = `
-        <img src="${item.artworkUrl100}" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=150&h=150&fit=crop'">
+        <img src="${escapeHtml(item.artworkUrl100)}" alt="Art" onerror="this.src='https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=150&h=150&fit=crop'">
         <div class="search-result-info">
           <div>
-            <h4>${item.collectionName}</h4>
-            <p class="artist">${item.artistName}</p>
+            <h4>${escapeHtml(item.collectionName)}</h4>
+            <p class="artist">${escapeHtml(item.artistName)}</p>
           </div>
-          <button class="btn ${isSubbed ? 'btn-outline is-subscribed' : 'btn-primary'} btn-sm sub-search-btn" data-url="${item.feedUrl}">
+          <button class="btn ${isSubbed ? 'btn-outline is-subscribed' : 'btn-primary'} btn-sm sub-search-btn" data-url="${escapeHtml(item.feedUrl)}">
             <i data-lucide="${isSubbed ? 'check' : 'plus'}" style="width: 12px; height: 12px;"></i>
             ${isSubbed ? 'Subscribed' : 'Subscribe'}
           </button>
@@ -1277,7 +1318,7 @@ function openBoostModal(podcast = null, episode = null) {
       const shortAddr = r.address.length > 24 ? r.address.substring(0, 10) + '...' + r.address.substring(r.address.length - 8) : r.address;
       html += `
         <div style="display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.78rem;">
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">${r.name} <span style="color: var(--text-muted); font-size: 0.72rem;">(${shortAddr})</span></span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">${escapeHtml(r.name)} <span style="color: var(--text-muted); font-size: 0.72rem;">(${escapeHtml(shortAddr)})</span></span>
           <span style="font-weight: bold; color: var(--color-burnt-orange);">${pct}%${r.fee ? ' (fee)' : ''}</span>
         </div>
       `;
@@ -1893,7 +1934,7 @@ function renderEpisodeNotes(episode) {
   const desc = episode.rawDescription || episode.description || 'No description available.';
   html += `
     <div class="notes-description-body" style="color: #bbb; line-height: 1.6; font-size: 0.9rem;">
-      ${desc}
+      ${sanitizeHtml(desc)}
     </div>
   `;
 
@@ -2003,12 +2044,12 @@ function renderTranscriptCues() {
     const timeStr = formatTime(cue.start);
     let speakerHtml = '';
     if (cue.speaker) {
-      speakerHtml = `<span class="cue-speaker" style="color: var(--accent-orange, #EB5E17); font-weight: 600; margin-right: 6px;">${cue.speaker}:</span>`;
+      speakerHtml = `<span class="cue-speaker" style="color: var(--accent-orange, #EB5E17); font-weight: 600; margin-right: 6px;">${escapeHtml(cue.speaker)}:</span>`;
     }
     
     cueDiv.innerHTML = `
       <span class="cue-time">${timeStr}</span>
-      <span class="cue-text">${speakerHtml}${cue.text}</span>
+      <span class="cue-text">${speakerHtml}${escapeHtml(cue.text)}</span>
     `;
 
     // Click to seek
@@ -2076,16 +2117,16 @@ function filterTranscript(query) {
 
     if (!cleanQuery) {
       el.classList.remove('filtered-out');
-      textNode.innerHTML = originalText;
+      textNode.textContent = originalText;
       return;
     }
 
     if (originalText.toLowerCase().includes(cleanQuery)) {
       el.classList.remove('filtered-out');
       
-      // Highlight matching keyword
-      const regex = new RegExp(`(${escapeRegExp(cleanQuery)})`, 'gi');
-      textNode.innerHTML = originalText.replace(regex, '<mark>$1</mark>');
+      // Highlight matching keyword safely on escaped text
+      const regex = new RegExp(`(${escapeRegExp(escapeHtml(cleanQuery))})`, 'gi');
+      textNode.innerHTML = escapeHtml(originalText).replace(regex, '<mark>$1</mark>');
     } else {
       el.classList.add('filtered-out');
     }

@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
+const dns = require('dns');
+const net = require('net');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +14,37 @@ app.use(cors());
 // Serve static files from the public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// CORS proxy endpoint
+/**
+ * Checks whether an IP address belongs to private, loopback, link-local,
+ * carrier-grade NAT, or multicast ranges (SSRF protection).
+ */
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(isNaN)) return true;
+    const [b0, b1] = parts;
+    if (b0 === 0) return true; // 0.0.0.0/8
+    if (b0 === 10) return true; // 10.0.0.0/8
+    if (b0 === 127) return true; // 127.0.0.0/8
+    if (b0 === 169 && b1 === 254) return true; // 169.254.0.0/16 link-local
+    if (b0 === 172 && (b1 >= 16 && b1 <= 31)) return true; // 172.16.0.0/12
+    if (b0 === 192 && b1 === 168) return true; // 192.168.0.0/16
+    if (b0 === 100 && (b1 >= 64 && b1 <= 127)) return true; // 100.64.0.0/10 CGNAT
+    if (b0 >= 224) return true; // 224.0.0.0/4 multicast & 240.0.0.0/4 reserved
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const normalized = ip.toLowerCase();
+    if (normalized === '::1' || normalized === '::') return true;
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // fc00::/7 ULA
+    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true; // fe80::/10 link-local
+    if (normalized.startsWith('ff')) return true; // ff00::/8 multicast
+    return false;
+  }
+  return true;
+}
+
+// CORS proxy endpoint with SSRF protections
 app.get('/api/proxy', async (req, res) => {
   const { url } = req.query;
 
@@ -20,28 +52,45 @@ app.get('/api/proxy', async (req, res) => {
     return res.status(400).json({ error: 'URL parameter is required' });
   }
 
+  let parsedUrl;
   try {
-    // Set headers to mimic a normal browser request to avoid user-agent blocks
+    parsedUrl = new URL(url);
+  } catch (_) {
+    return res.status(400).json({ error: 'Invalid URL format' });
+  }
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return res.status(400).json({ error: 'Only http and https protocols are supported' });
+  }
+
+  try {
+    const addresses = await dns.promises.lookup(parsedUrl.hostname, { all: true });
+    for (const addr of addresses) {
+      if (isPrivateIp(addr.address)) {
+        return res.status(403).json({ error: 'Access to private or local network addresses is forbidden' });
+      }
+    }
+
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'EagerToListen/0.9.0-alpha (WebProxy; +https://eagertobehealthy.com/eager-to-listen)',
         'Accept': '*/*'
       },
-      timeout: 10000 // 10s timeout
+      timeout: 10000,
+      maxContentLength: 15 * 1024 * 1024,
+      maxBodyLength: 15 * 1024 * 1024,
+      maxRedirects: 5
     });
 
-    // Forward the content type header if present, otherwise default to octet-stream
     const contentType = response.headers['content-type'] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
-    
-    // Set caching headers so we don't spam podcast servers on repeated loads
-    res.setHeader('Cache-Control', 'public, max-age=600'); // 10 minutes cache
-
+    res.setHeader('Cache-Control', 'public, max-age=600');
     res.send(response.data);
   } catch (error) {
     console.error(`Proxy error fetching ${url}:`, error.message);
-    res.status(500).json({
+    const status = error.response ? error.response.status : 500;
+    res.status(status).json({
       error: 'Failed to fetch the requested URL',
       details: error.message
     });
