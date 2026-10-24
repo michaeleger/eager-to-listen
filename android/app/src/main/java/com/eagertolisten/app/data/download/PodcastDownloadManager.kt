@@ -3,12 +3,17 @@ package com.eagertolisten.app.data.download
 import android.content.Context
 import android.os.Environment
 import android.util.Log
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
 import com.eagertolisten.app.data.EagerDatabase
 import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.repository.PodcastRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
@@ -21,7 +26,7 @@ class PodcastDownloadManager(private val context: Context) {
     private val queueDao = db.queueDao()
     private val podcastDao = db.podcastDao()
 
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = PodcastRepository.getOkHttpClient().newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -31,8 +36,38 @@ class PodcastDownloadManager(private val context: Context) {
     companion object {
         private const val TAG = "PodcastDownloadMgr"
         const val PREF_KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
+        const val PREF_KEY_ALLOW_CELLULAR = "allow_cellular_downloads"
         const val PREF_KEY_AUTO_DOWNLOAD_HOURS = "auto_download_hours"
+        const val PREF_KEY_LAST_ORPHAN_SWEEP = "last_orphan_sweep_timestamp"
         const val DEFAULT_AUTO_DOWNLOAD_HOURS = 4
+
+        fun enqueueAutoDownload(context: Context) {
+            val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
+            val enabled = prefs.getBoolean(PREF_KEY_AUTO_DOWNLOAD_ENABLED, true)
+            if (!enabled) {
+                WorkManager.getInstance(context).cancelUniqueWork("eager-downloads")
+                return
+            }
+
+            val allowCellular = prefs.getBoolean(PREF_KEY_ALLOW_CELLULAR, false)
+            val networkType = if (allowCellular) NetworkType.CONNECTED else NetworkType.UNMETERED
+
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(networkType)
+                .setRequiresStorageNotLow(true)
+                .build()
+
+            val request = OneTimeWorkRequestBuilder<DownloadQueueWorker>()
+                .setConstraints(constraints)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "eager-downloads",
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+        }
     }
 
     private fun getDownloadsDir(): File {
@@ -44,61 +79,62 @@ class PodcastDownloadManager(private val context: Context) {
         return dir
     }
 
-    private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(100)
-    }
-
-    /**
-     * Auto-downloads next queue episodes up to targetDurationHours (default 4 hours).
-     * Excludes podcasts with playOrderStrategy == 'NEWS'.
-     * Keeps downloading until accumulated duration reaches or exceeds the target.
-     */
-    suspend fun performAutoDownloadQueue(targetHours: Int = DEFAULT_AUTO_DOWNLOAD_HOURS): Int = withContext(Dispatchers.IO) {
+    suspend fun performAutoDownloadQueue(
+        targetHours: Int = DEFAULT_AUTO_DOWNLOAD_HOURS,
+        onProgress: ((title: String, current: Int, total: Int, indeterminate: Boolean) -> Unit)? = null
+    ): Int = withContext(Dispatchers.IO) {
         val targetDurationSec = targetHours.toLong() * 3600L
         val queueEpisodes = queueDao.getQueueEpisodesSync()
         if (queueEpisodes.isEmpty()) {
             Log.d(TAG, "Queue is empty; nothing to auto-download.")
+            cleanUnqueuedDownloads()
+            checkOrphanSweep()
             return@withContext 0
         }
 
         var accumulatedDurationSec = 0L
         var downloadedCount = 0
+        val targetEpisodes = mutableListOf<Episode>()
 
         for (ep in queueEpisodes) {
-            if (ep.isCompleted || ep.isLive || ep.liveStatus != null) continue
+            if (ep.isCompleted || ep.isDismissed || ep.isLive || ep.liveStatus != null) continue
 
-            // Exclude news podcasts: timely and will be refreshed just-in-time
             val podcast = podcastDao.getPodcastByIdSync(ep.podcastId)
             if (podcast?.playOrderStrategy == "NEWS") {
                 Log.d(TAG, "Skipping '${ep.title}' - NEWS feed excluded from pre-downloading")
                 continue
             }
 
-            // Estimate duration if 0 (default to 45 min)
             val effectiveDuration = if (ep.durationSeconds > 0) ep.durationSeconds else 2700L
+            targetEpisodes.add(ep)
+            accumulatedDurationSec += effectiveDuration
 
-            // Check if already downloaded
-            val isAlreadyDownloaded = ep.isDownloaded && ep.localFilePath != null && File(ep.localFilePath).exists()
-            if (isAlreadyDownloaded) {
-                accumulatedDurationSec += effectiveDuration
-                Log.d(TAG, "Already downloaded: '${ep.title}' (${effectiveDuration}s), accumulated: ${accumulatedDurationSec}s")
-            } else {
-                Log.i(TAG, "Auto-downloading queue item: '${ep.title}' (${effectiveDuration}s)")
-                val success = downloadEpisodeInternal(ep)
-                if (success) {
-                    downloadedCount++
-                    accumulatedDurationSec += effectiveDuration
-                }
-            }
-
-            // Rule: "You can go over just not under the setting"
             if (accumulatedDurationSec >= targetDurationSec) {
-                Log.i(TAG, "Reached target programming buffer: ${accumulatedDurationSec}s >= ${targetDurationSec}s (${targetHours}h)")
                 break
             }
         }
 
-        cleanCompletedDownloads()
+        cleanUnqueuedDownloads()
+        checkOrphanSweep()
+
+        val totalToDownload = targetEpisodes.count { !it.isDownloaded || it.localFilePath == null || !File(it.localFilePath).exists() }
+        var currentProgress = 0
+
+        for (ep in targetEpisodes) {
+            val isAlreadyDownloaded = ep.isDownloaded && ep.localFilePath != null && File(ep.localFilePath).exists()
+            if (isAlreadyDownloaded) {
+                continue
+            }
+
+            currentProgress++
+            onProgress?.invoke(ep.title, currentProgress, totalToDownload, false)
+
+            val success = downloadEpisodeInternal(ep)
+            if (success) {
+                downloadedCount++
+            }
+        }
+
         downloadedCount
     }
 
@@ -109,46 +145,76 @@ class PodcastDownloadManager(private val context: Context) {
     private suspend fun downloadEpisodeInternal(episode: Episode): Boolean {
         try {
             if (episode.audioUrl.isBlank()) return false
-            val fileName = "ep_${episode.id.hashCode()}_${sanitizeFileName(episode.title)}.mp3"
-            val targetFile = File(getDownloadsDir(), fileName)
+            val safeId = episode.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val downloadsDir = getDownloadsDir()
 
-            if (targetFile.exists() && targetFile.length() > 0) {
-                episodeDao.updateDownloadStatus(episode.id, targetFile.absolutePath, true)
+            val existingMatching = downloadsDir.listFiles()?.firstOrNull { it.name.startsWith("ep_${safeId}.") && !it.name.endsWith(".part") }
+            if (existingMatching != null && existingMatching.length() > 0) {
+                episodeDao.updateDownloadStatus(episode.id, existingMatching.absolutePath, true, existingMatching.length())
                 return true
             }
 
-            val tempFile = File(getDownloadsDir(), "$fileName.tmp")
-            val request = Request.Builder()
+            val partFile = File(downloadsDir, "ep_${safeId}.part")
+            val existingBytes = if (partFile.exists()) partFile.length() else 0L
+
+            val requestBuilder = Request.Builder()
                 .url(episode.audioUrl)
                 .header("User-Agent", PodcastRepository.USER_AGENT)
-                .build()
+
+            if (existingBytes > 0) {
+                requestBuilder.header("Range", "bytes=$existingBytes-")
+                Log.d(TAG, "Resuming partial download for '${episode.title}' from $existingBytes bytes")
+            }
+
+            val request = requestBuilder.build()
+            var ext = "mp3"
 
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
+                if (!response.isSuccessful && response.code != 416) {
                     Log.w(TAG, "Failed HTTP ${response.code} downloading '${episode.title}'")
                     return false
                 }
-                val body = response.body ?: return false
-                val inputStream = body.byteStream()
-                val outputStream = FileOutputStream(tempFile)
 
-                inputStream.use { input ->
+                if (response.code == 416) {
+                    partFile.delete()
+                    return false
+                }
+
+                val contentType = response.header("Content-Type")?.lowercase() ?: ""
+                val urlLower = episode.audioUrl.lowercase()
+                ext = when {
+                    contentType.contains("audio/mp4") || contentType.contains("audio/x-m4a") || contentType.contains("video/mp4") -> "m4a"
+                    contentType.contains("audio/aac") -> "aac"
+                    contentType.contains("audio/ogg") || contentType.contains("audio/opus") -> "ogg"
+                    urlLower.contains(".m4a") -> "m4a"
+                    urlLower.contains(".aac") -> "aac"
+                    urlLower.contains(".ogg") -> "ogg"
+                    else -> "mp3"
+                }
+
+                val body = response.body ?: return false
+                val isAppend = response.code == 206 && existingBytes > 0
+                val outputStream = FileOutputStream(partFile, isAppend)
+
+                body.byteStream().use { input ->
                     outputStream.use { output ->
-                        input.copyTo(output, bufferSize = 8192)
+                        input.copyTo(output, bufferSize = 16384)
+                        output.flush()
                     }
                 }
             }
 
-            if (tempFile.exists() && tempFile.length() > 1024) {
+            if (partFile.exists() && partFile.length() > 1024) {
+                val targetFile = File(downloadsDir, "ep_${safeId}.$ext")
                 if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-                episodeDao.updateDownloadStatus(episode.id, targetFile.absolutePath, true)
-                Log.i(TAG, "Successfully downloaded: '${episode.title}' to ${targetFile.absolutePath} (${targetFile.length() / 1024 / 1024} MB)")
-                return true
-            } else {
-                tempFile.delete()
-                return false
+                val renamed = partFile.renameTo(targetFile)
+                if (renamed) {
+                    episodeDao.updateDownloadStatus(episode.id, targetFile.absolutePath, true, targetFile.length())
+                    Log.i(TAG, "Successfully downloaded: '${episode.title}' (${targetFile.length() / 1024 / 1024} MB) to ${targetFile.name}")
+                    return true
+                }
             }
+            return false
         } catch (e: Exception) {
             Log.e(TAG, "Exception downloading '${episode.title}': ${e.message}", e)
             return false
@@ -163,22 +229,63 @@ class PodcastDownloadManager(private val context: Context) {
                 file.delete()
             }
         }
-        episodeDao.updateDownloadStatus(episodeId, null, false)
+        val safeId = episodeId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val partFile = File(getDownloadsDir(), "ep_${safeId}.part")
+        if (partFile.exists()) partFile.delete()
+
+        episodeDao.updateDownloadStatus(episodeId, null, false, null)
     }
 
-    suspend fun cleanCompletedDownloads() = withContext(Dispatchers.IO) {
+    suspend fun cleanUnqueuedDownloads() = withContext(Dispatchers.IO) {
         val downloaded = episodeDao.getDownloadedEpisodesSync()
+        val queueItems = queueDao.getAllQueueItemsSync()
+        val queueEpisodeIds = queueItems.map { it.episodeId }.toSet()
+        val pinnedEpisodeIds = queueItems.filter { it.isManual }.map { it.episodeId }.toSet()
+
         for (ep in downloaded) {
-            if (ep.isCompleted) {
+            if (ep.isCompleted || ep.isDismissed || (!queueEpisodeIds.contains(ep.id) && !pinnedEpisodeIds.contains(ep.id))) {
                 if (ep.localFilePath != null) {
                     val file = File(ep.localFilePath)
                     if (file.exists()) {
                         file.delete()
                     }
                 }
-                episodeDao.updateDownloadStatus(ep.id, null, false)
-                Log.d(TAG, "Cleaned completed download for '${ep.title}'")
+                episodeDao.updateDownloadStatus(ep.id, null, false, null)
+                Log.d(TAG, "Cleaned unqueued/completed download for '${ep.title}'")
             }
+        }
+    }
+
+    private suspend fun checkOrphanSweep() = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
+        val lastSweep = prefs.getLong(PREF_KEY_LAST_ORPHAN_SWEEP, 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastSweep > 7L * 24L * 3600L * 1000L) {
+            performOrphanSweep()
+            prefs.edit().putLong(PREF_KEY_LAST_ORPHAN_SWEEP, now).apply()
+        }
+    }
+
+    suspend fun performOrphanSweep() = withContext(Dispatchers.IO) {
+        val downloadsDir = getDownloadsDir()
+        val files = downloadsDir.listFiles() ?: return@withContext
+        val downloaded = episodeDao.getDownloadedEpisodesSync()
+        val knownPaths = downloaded.mapNotNull { it.localFilePath }.toSet()
+
+        var deletedCount = 0
+        for (file in files) {
+            if (file.name.endsWith(".part")) {
+                if (System.currentTimeMillis() - file.lastModified() > 48L * 3600L * 1000L) {
+                    file.delete()
+                    deletedCount++
+                }
+            } else if (!knownPaths.contains(file.absolutePath)) {
+                file.delete()
+                deletedCount++
+            }
+        }
+        if (deletedCount > 0) {
+            Log.i(TAG, "Orphan sweep removed $deletedCount untracked audio file(s)")
         }
     }
 }

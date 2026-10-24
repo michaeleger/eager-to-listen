@@ -823,6 +823,11 @@ class PlaybackService : MediaLibraryService() {
             } catch (e: Exception) {
                 Log.w("PlaybackService", "Auto-sync after finish failed: ${e.message}")
             }
+            try {
+                com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(applicationContext)
+            } catch (e: Exception) {
+                Log.w("PlaybackService", "Auto-download after finish failed: ${e.message}")
+            }
         }
     }
 

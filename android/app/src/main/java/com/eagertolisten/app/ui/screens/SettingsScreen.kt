@@ -115,6 +115,18 @@ fun SettingsScreen(
             )
         )
     }
+    var allowCellularDownloads by remember {
+        mutableStateOf(
+            prefs.getBoolean(
+                com.eagertolisten.app.data.download.PodcastDownloadManager.PREF_KEY_ALLOW_CELLULAR,
+                false
+            )
+        )
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
     var piApiKey by remember {
         mutableStateOf(
             prefs.getString(
@@ -490,9 +502,23 @@ fun SettingsScreen(
                         }
                         Switch(
                             checked = autoDownloadEnabled,
-                            onCheckedChange = {
-                                autoDownloadEnabled = it
-                                prefs.edit().putBoolean(com.eagertolisten.app.data.download.PodcastDownloadManager.PREF_KEY_AUTO_DOWNLOAD_ENABLED, it).apply()
+                            onCheckedChange = { isChecked ->
+                                autoDownloadEnabled = isChecked
+                                prefs.edit().putBoolean(com.eagertolisten.app.data.download.PodcastDownloadManager.PREF_KEY_AUTO_DOWNLOAD_ENABLED, isChecked).apply()
+                                if (isChecked) {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                                                context,
+                                                android.Manifest.permission.POST_NOTIFICATIONS
+                                            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        ) {
+                                            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    }
+                                    com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(context)
+                                } else {
+                                    androidx.work.WorkManager.getInstance(context).cancelUniqueWork("eager-downloads")
+                                }
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = BurntOrange, checkedTrackColor = BurntOrange.copy(alpha = 0.4f))
                         )
@@ -505,6 +531,40 @@ fun SettingsScreen(
                     )
 
                     if (autoDownloadEnabled) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = "Allow downloads over cellular",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "When disabled, queue will only auto-download on Wi-Fi",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = allowCellularDownloads,
+                                onCheckedChange = { allowCell ->
+                                    allowCellularDownloads = allowCell
+                                    prefs.edit().putBoolean(
+                                        com.eagertolisten.app.data.download.PodcastDownloadManager.PREF_KEY_ALLOW_CELLULAR,
+                                        allowCell
+                                    ).apply()
+                                    com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(context)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = BurntOrange,
+                                    checkedTrackColor = BurntOrange.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Target Programming Buffer:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = TextPrimary)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -517,6 +577,7 @@ fun SettingsScreen(
                                         modifier = Modifier.clickable {
                                             autoDownloadHours = hours
                                             prefs.edit().putInt(com.eagertolisten.app.data.download.PodcastDownloadManager.PREF_KEY_AUTO_DOWNLOAD_HOURS, hours).apply()
+                                            com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(context)
                                         }
                                     ) {
                                         Text(

@@ -381,8 +381,8 @@ interface EpisodeDao {
         updatedAt: Long = System.currentTimeMillis()
     ): Int
 
-    @Query("UPDATE episodes SET localFilePath = :localPath, isDownloaded = :isDownloaded WHERE id = :episodeId")
-    suspend fun updateDownloadStatus(episodeId: String, localPath: String?, isDownloaded: Boolean): Int
+    @Query("UPDATE episodes SET localFilePath = :localPath, isDownloaded = :isDownloaded, downloadBytes = :bytes WHERE id = :episodeId")
+    suspend fun updateDownloadStatus(episodeId: String, localPath: String?, isDownloaded: Boolean, bytes: Long? = null): Int
 
     @Query("SELECT * FROM episodes WHERE isDownloaded = 1 ORDER BY publishedAt DESC")
     fun getDownloadedEpisodes(): Flow<List<Episode>>

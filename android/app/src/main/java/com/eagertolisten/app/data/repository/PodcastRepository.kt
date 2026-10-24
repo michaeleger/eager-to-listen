@@ -196,6 +196,28 @@ class PodcastRepository(context: Context) {
                 val body = response.body?.byteStream() ?: return Result.failure(Exception("Empty body from server"))
                 val parsed = feedParser.parse(body, podcast.feedUrl, podcastId = podcast.id)
 
+                // Handle 301/308 permanent redirects
+                var prior = response.priorResponse
+                var wasPermanentRedirect = false
+                while (prior != null) {
+                    if (prior.code == 301 || prior.code == 308) {
+                        wasPermanentRedirect = true
+                        break
+                    }
+                    prior = prior.priorResponse
+                }
+                val finalUrl = response.request.url.toString()
+                if (wasPermanentRedirect && finalUrl.isNotBlank() && finalUrl != podcast.feedUrl) {
+                    Log.i("EagerRefresh", "Permanent redirect for '${podcast.title}': ${podcast.feedUrl} -> $finalUrl")
+                    podcastDao.updateFeedUrl(podcast.id, finalUrl)
+                }
+
+                // Handle itunes:new-feed-url
+                if (!parsed.newFeedUrl.isNullOrBlank() && parsed.newFeedUrl != podcast.feedUrl) {
+                    Log.i("EagerRefresh", "itunes:new-feed-url for '${podcast.title}': ${podcast.feedUrl} -> ${parsed.newFeedUrl}")
+                    podcastDao.updateFeedUrl(podcast.id, parsed.newFeedUrl)
+                }
+
                 // Guarantee podcastId matches podcast.id so foreign keys and queries always align
                 val episodes = parsed.episodes.map { it.copy(podcastId = podcast.id) }
                 val realTitle = if (parsed.podcast.title.isNotBlank() && parsed.podcast.title != "Podcast") parsed.podcast.title else podcast.title
@@ -619,6 +641,12 @@ class PodcastRepository(context: Context) {
         val savedRule = getSavedSortRule()
         if (savedRule != QueueSortRule.PROGRAMMED_FAIR) {
             applySortRuleToCurrentQueue(savedRule)
+        }
+
+        try {
+            com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(appContext)
+        } catch (e: Exception) {
+            Log.w("PodcastRepository", "Failed to enqueue auto download: ${e.message}")
         }
     }
 

@@ -70,26 +70,17 @@ class ScheduledUpdateWorker(
             val syncManager = SyncManager(appContext)
             val downloadManager = PodcastDownloadManager(appContext)
 
-            // 1. Refresh all podcast feeds
+            // 1. Refresh all podcast feeds (which also purges expired news, rebuilds queue, and enqueues downloads)
             val (successCount, errors) = repository.refreshAllFeeds()
             Log.i(TAG, "Feed refresh completed: $successCount succeeded, ${errors.size} failed")
 
-            // 2. Purge expired news and rebuild queue
-            repository.purgeExpiredNewsEpisodes()
-            repository.generateProgrammedQueue()
-
-            // 3. Perform Scheduled Backup
+            // 2. Perform Scheduled Backup
             performLocalAndDriveBackup(syncManager)
 
-            // 4. Auto-Download queue buffer if enabled
+            // 3. Ensure background auto-download queue is enqueued if enabled
             val autoDownloadEnabled = prefs.getBoolean(PodcastDownloadManager.PREF_KEY_AUTO_DOWNLOAD_ENABLED, true)
             if (autoDownloadEnabled) {
-                val targetHours = prefs.getInt(
-                    PodcastDownloadManager.PREF_KEY_AUTO_DOWNLOAD_HOURS,
-                    PodcastDownloadManager.DEFAULT_AUTO_DOWNLOAD_HOURS
-                )
-                val downloaded = downloadManager.performAutoDownloadQueue(targetHours)
-                Log.i(TAG, "Auto-download completed: $downloaded episodes downloaded (target: ${targetHours}h)")
+                PodcastDownloadManager.enqueueAutoDownload(appContext)
             }
 
             prefs.edit()

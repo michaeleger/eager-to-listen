@@ -22,7 +22,8 @@ import java.util.Locale
 
 data class ParsedFeed(
     val podcast: Podcast,
-    val episodes: List<Episode>
+    val episodes: List<Episode>,
+    val newFeedUrl: String? = null
 )
 
 class FeedParser {
@@ -60,6 +61,7 @@ class FeedParser {
         var channelValueJson: String? = null
         var channelCategory = ""
         var channelItunesType = ""
+        var channelNewFeedUrl: String? = null
 
         val episodes = mutableListOf<Episode>()
         var insideChannel = false
@@ -280,6 +282,9 @@ class FeedParser {
                                 name == "type" && prefix == "itunes" -> {
                                     channelItunesType = parser.nextText().trim().lowercase()
                                 }
+                                name == "new-feed-url" -> {
+                                    channelNewFeedUrl = runCatching { parser.nextText() }.getOrNull()?.trim()
+                                }
                                 // Podcasting 2.0: Funding
                                 name == "funding" -> {
                                     channelFundingUrl = parser.getAttributeValue(null, "url")
@@ -422,7 +427,7 @@ class FeedParser {
             playOrderStrategy = inferredStrategy
         )
 
-        return ParsedFeed(podcast, boundedEpisodes)
+        return ParsedFeed(podcast, boundedEpisodes, channelNewFeedUrl)
     }
 
     companion object {
