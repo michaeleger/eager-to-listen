@@ -2,6 +2,8 @@ package com.eagertolisten.app.parser
 
 import android.util.Xml
 import com.eagertolisten.app.data.model.Episode
+import com.eagertolisten.app.data.model.EpisodeId
+import com.eagertolisten.app.data.model.FeedUrl
 import com.eagertolisten.app.data.model.Person
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.data.model.PodcastValue
@@ -11,9 +13,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
-import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.TimeZone
 
 data class ParsedFeed(
     val podcast: Podcast,
@@ -22,27 +27,16 @@ data class ParsedFeed(
 
 class FeedParser {
 
-    private val rfc822FormatsThreadLocal = object : ThreadLocal<Array<SimpleDateFormat>>() {
-        override fun initialValue(): Array<SimpleDateFormat> = arrayOf(
-            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
-            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US),
-            SimpleDateFormat("dd MMM yyyy HH:mm:ss Z", Locale.US),
-            SimpleDateFormat("EEE, dd MMM yyyy HH:mm Z", Locale.US),
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-        )
-    }
-
-    private val isoFormatsThreadLocal = object : ThreadLocal<Array<SimpleDateFormat>>() {
-        override fun initialValue(): Array<SimpleDateFormat> = arrayOf(
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US),
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            },
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),
-            SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        )
+    private fun transcriptTypeScore(type: String?): Int {
+        val t = type?.lowercase()?.trim() ?: ""
+        return when {
+            t == "text/vtt" -> 5
+            t == "application/x-subrip" || t == "text/srt" -> 4
+            t == "application/json" -> 3
+            t == "text/plain" -> 2
+            t == "text/html" -> 1
+            else -> 0
+        }
     }
 
     fun parse(inputStream: InputStream, feedUrl: String, podcastId: String = feedUrl): ParsedFeed {
@@ -69,13 +63,15 @@ class FeedParser {
         val episodes = mutableListOf<Episode>()
         var insideChannel = false
         var insideItem = false
+        var currentFeedOrder = 0
 
         // Temp episode vars
         var itemTitle = ""
         var itemGuid = ""
         var itemAudioUrl = ""
         var itemDescription = ""
-        var itemPubDate: Long = 0
+        var itemPubDate: Long = 0L
+        var itemFeedOrder: Int = 0
         var itemDurationSec: Long = 0
         var itemArtworkUrl: String? = null
         var itemTranscriptUrl: String? = null
@@ -106,6 +102,7 @@ class FeedParser {
                         name == "channel" -> insideChannel = true
                         name == "item" || name == "liveitem" -> {
                             insideItem = true
+                            itemFeedOrder = currentFeedOrder++
                             val isLiveTag = (name == "liveitem")
                             val rawStatus = if (isLiveTag) {
                                 parser.getAttributeValue(null, "status")?.lowercase()?.trim() ?: "live"
@@ -136,7 +133,7 @@ class FeedParser {
                             itemGuid = ""
                             itemAudioUrl = ""
                             itemDescription = ""
-                            itemPubDate = System.currentTimeMillis()
+                            itemPubDate = 0L
                             itemDurationSec = 0
                             itemArtworkUrl = null
                             itemTranscriptUrl = null
@@ -190,8 +187,14 @@ class FeedParser {
                                 }
                                 // Podcasting 2.0: Transcript
                                 name == "transcript" -> {
-                                    itemTranscriptUrl = parser.getAttributeValue(null, "url")
-                                    itemTranscriptType = parser.getAttributeValue(null, "type")
+                                    val newUrl = parser.getAttributeValue(null, "url")
+                                    val newType = parser.getAttributeValue(null, "type")
+                                    if (!newUrl.isNullOrBlank()) {
+                                        if (itemTranscriptUrl == null || transcriptTypeScore(newType) > transcriptTypeScore(itemTranscriptType)) {
+                                            itemTranscriptUrl = newUrl
+                                            itemTranscriptType = newType
+                                        }
+                                    }
                                 }
                                 // Podcasting 2.0: Chapters
                                 name == "chapters" -> {
@@ -329,7 +332,7 @@ class FeedParser {
                             if (isLiveTag && !itemIsLive) {
                                 // Live broadcast is not actively airing right now (ended or pending)
                             } else if (itemIsLive || episodes.size < MAX_RAW_ITEMS_PER_FEED) {
-                                val effectiveId = if (itemGuid.isNotBlank()) itemGuid else itemAudioUrl
+                                val effectiveId = EpisodeId.of(podcastId = podcastId, guid = itemGuid, enclosureUrl = itemAudioUrl)
                                 if (effectiveId.isNotBlank() && itemAudioUrl.isNotBlank()) {
                                 val personsJson = if (itemPersons.isNotEmpty()) {
                                     val arr = JSONArray()
@@ -376,7 +379,8 @@ class FeedParser {
                                         isLive = itemIsLive,
                                         liveStatus = itemLiveStatus,
                                         fundingUrl = itemFundingUrl ?: channelFundingUrl,
-                                        valueJson = itemValueJson ?: channelValueJson
+                                        valueJson = itemValueJson ?: channelValueJson,
+                                        feedOrder = itemFeedOrder
                                     )
                                 )
                             }
@@ -426,14 +430,20 @@ class FeedParser {
         private const val MAX_EPISODES_PER_FEED = 200
         private const val MAX_RAW_ITEMS_PER_FEED = 500
 
+        private val CHRONO_REGEX = Regex("""\b(serial|course|class|lecture|audiobook)\b|\bseason\s+\d+|\bhistory\s+of\b""", RegexOption.IGNORE_CASE)
+        private val NEWS_REGEX = Regex("""\b(news|briefing|daily\s+news)\b""", RegexOption.IGNORE_CASE)
+
+        private val rfc1123 = DateTimeFormatter.RFC_1123_DATE_TIME
+        private val rfcLenientFormats = listOf(
+            DateTimeFormatter.ofPattern("EEE, d MMM yyyy HH:mm:ss Z", Locale.US),
+            DateTimeFormatter.ofPattern("EEE, d MMM yyyy HH:mm:ss z", Locale.US),
+            DateTimeFormatter.ofPattern("d MMM yyyy HH:mm:ss Z", Locale.US),
+            DateTimeFormatter.ofPattern("EEE, d MMM yyyy HH:mm Z", Locale.US),
+            DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss", Locale.US).withZone(ZoneOffset.UTC)
+        )
+
         fun effectiveCategory(title: String, rawCategory: String = ""): String {
-            val t = title.lowercase()
-            return when {
-                t.contains("no agenda") -> "News, Current Events"
-                t.contains("eager to be healthy") -> "Health & Wellness, Self-Help"
-                rawCategory.isNotBlank() -> rawCategory
-                else -> "General"
-            }
+            return rawCategory.ifBlank { "General" }
         }
 
         fun inferPlayOrderStrategy(
@@ -442,40 +452,50 @@ class FeedParser {
             itunesType: String = "",
             category: String = ""
         ): String {
-            val combined = "$title $description $category".lowercase()
-            return when {
-                combined.contains("no agenda") -> {
-                    com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS.name
-                }
-                combined.contains("eager to be healthy") -> {
-                    com.eagertolisten.app.data.model.PlayOrderStrategy.EVERGREEN.name
-                }
-                itunesType == "serial" || combined.contains("story") || combined.contains("course") || 
-                combined.contains("class") || combined.contains("lecture") || combined.contains("season ") || 
-                combined.contains("history of") || combined.contains("audiobook") -> {
-                    com.eagertolisten.app.data.model.PlayOrderStrategy.CHRONOLOGICAL.name
-                }
-                combined.contains("news") || combined.contains("daily") || combined.contains("briefing") || 
-                combined.contains("politics") || combined.contains("current events") || combined.contains("today in") -> {
-                    com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS.name
-                }
-                else -> {
-                    // When unsure, default to Evergreen / Knowledge
-                    com.eagertolisten.app.data.model.PlayOrderStrategy.EVERGREEN.name
-                }
+            if (itunesType.equals("serial", ignoreCase = true)) {
+                return com.eagertolisten.app.data.model.PlayOrderStrategy.CHRONOLOGICAL.name
             }
+            if (category.equals("News", ignoreCase = true) || category.contains("News", ignoreCase = true)) {
+                return com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS.name
+            }
+            val combined = "$title $description $category"
+            if (CHRONO_REGEX.containsMatchIn(combined)) {
+                return com.eagertolisten.app.data.model.PlayOrderStrategy.CHRONOLOGICAL.name
+            }
+            if (NEWS_REGEX.containsMatchIn(combined)) {
+                return com.eagertolisten.app.data.model.PlayOrderStrategy.NEWS.name
+            }
+            return com.eagertolisten.app.data.model.PlayOrderStrategy.EVERGREEN.name
         }
-    }
 
-    private fun parseDate(dateStr: String): Long {
-        val trimmed = dateStr.trim()
-        val formats = rfc822FormatsThreadLocal.get() ?: return System.currentTimeMillis()
-        for (format in formats) {
+        fun parseDate(dateStr: String): Long {
+            val trimmed = dateStr.trim()
+            if (trimmed.isBlank()) return 0L
+
             try {
-                return format.parse(trimmed)?.time ?: continue
+                return ZonedDateTime.parse(trimmed, rfc1123).toInstant().toEpochMilli()
             } catch (_: Exception) {}
+
+            for (fmt in rfcLenientFormats) {
+                try {
+                    return ZonedDateTime.parse(trimmed, fmt).toInstant().toEpochMilli()
+                } catch (_: Exception) {}
+            }
+
+            try {
+                return OffsetDateTime.parse(trimmed).toInstant().toEpochMilli()
+            } catch (_: Exception) {}
+
+            try {
+                return Instant.parse(trimmed).toEpochMilli()
+            } catch (_: Exception) {}
+
+            return 0L
         }
-        return System.currentTimeMillis()
+
+        fun parseIsoDate(dateStr: String): Long {
+            return parseDate(dateStr)
+        }
     }
 
     private fun parseDuration(durationStr: String): Long {
@@ -494,18 +514,5 @@ class FeedParser {
         } catch (_: Exception) {
             return 0L
         }
-    }
-
-    private fun parseIsoDate(dateStr: String): Long {
-        val trimmed = dateStr.trim()
-        val formats = isoFormatsThreadLocal.get()
-        if (formats != null) {
-            for (format in formats) {
-                try {
-                    return format.parse(trimmed)?.time ?: continue
-                } catch (_: Exception) {}
-            }
-        }
-        return parseDate(trimmed)
     }
 }

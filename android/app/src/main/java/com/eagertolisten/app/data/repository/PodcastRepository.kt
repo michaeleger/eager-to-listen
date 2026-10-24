@@ -45,6 +45,7 @@ class PodcastRepository(context: Context) {
     private val podcastDao = db.podcastDao()
     private val episodeDao = db.episodeDao()
     private val queueDao = db.queueDao()
+    private val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
 
     init {
         if (!initCleanupDone) {
@@ -62,7 +63,7 @@ class PodcastRepository(context: Context) {
     }
 
     companion object {
-        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 15; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 EagerToListen/1.0"
+        const val USER_AGENT = "EagerToListen/0.9.0-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
         const val ACCEPT_HEADER = "application/rss+xml, application/xml, text/xml, application/atom+xml, text/html;q=0.9, */*;q=0.8"
 
         private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -108,8 +109,20 @@ class PodcastRepository(context: Context) {
 
     suspend fun subscribe(feedUrl: String, priority: Int = 3): Result<Podcast> = withContext(Dispatchers.IO) {
         try {
+            val normalizedUrl = com.eagertolisten.app.data.model.FeedUrl.normalize(feedUrl).ifBlank { feedUrl.trim() }
+            val existing = podcastDao.getPodcastByIdSync(normalizedUrl) ?: podcastDao.getPodcastByFeedUrlSync(normalizedUrl)
+            if (existing != null) {
+                // If it was soft-unsubscribed, reactivate it while preserving history and settings (I2 & I3)
+                if (existing.unsubscribedAt != null) {
+                    podcastDao.clearUnsubscribed(existing.id)
+                }
+                refreshFeedInternal(existing)
+                generateProgrammedQueue()
+                return@withContext Result.success(existing)
+            }
+
             val request = Request.Builder()
-                .url(feedUrl)
+                .url(normalizedUrl)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", ACCEPT_HEADER)
                 .header("Accept-Language", "en-US,en;q=0.9")
@@ -120,9 +133,9 @@ class PodcastRepository(context: Context) {
                     return@withContext Result.failure(Exception("HTTP ${response.code} (${response.message})"))
                 }
                 val body = response.body?.byteStream() ?: return@withContext Result.failure(Exception("Empty body from server"))
-                val parsed = feedParser.parse(body, feedUrl, podcastId = feedUrl)
+                val parsed = feedParser.parse(body, normalizedUrl, podcastId = normalizedUrl)
 
-                val podcastWithPriority = parsed.podcast.copy(id = feedUrl, priority = priority)
+                val podcastWithPriority = parsed.podcast.copy(id = normalizedUrl, feedUrl = normalizedUrl, priority = priority)
                 val episodes = parsed.episodes.map { it.copy(podcastId = podcastWithPriority.id) }
 
                 db.withTransaction {
@@ -144,14 +157,26 @@ class PodcastRepository(context: Context) {
     private suspend fun refreshFeedInternal(podcast: Podcast): Result<Unit> {
         return try {
             Log.d("EagerRefresh", "Fetching feed for '${podcast.title}' (ID: ${podcast.id}, URL: ${podcast.feedUrl})")
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(podcast.feedUrl)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", ACCEPT_HEADER)
                 .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
+
+            podcast.httpEtag?.let { etag ->
+                if (etag.isNotBlank()) requestBuilder.header("If-None-Match", etag)
+            }
+            podcast.httpLastModified?.let { lastMod ->
+                if (lastMod.isNotBlank()) requestBuilder.header("If-Modified-Since", lastMod)
+            }
+
+            val request = requestBuilder.build()
 
             client.newCall(request).execute().use { response ->
+                if (response.code == 304) {
+                    Log.d("EagerRefresh", "Feed '${podcast.title}' not modified (304)")
+                    return Result.success(Unit)
+                }
                 if (!response.isSuccessful) {
                     val msg = "HTTP ${response.code} (${response.message})"
                     Log.w("EagerRefresh", "Failed '${podcast.title}': $msg")
@@ -163,23 +188,31 @@ class PodcastRepository(context: Context) {
                 // Guarantee podcastId matches podcast.id so foreign keys and queries always align
                 val episodes = parsed.episodes.map { it.copy(podcastId = podcast.id) }
                 val realTitle = if (parsed.podcast.title.isNotBlank() && parsed.podcast.title != "Podcast") parsed.podcast.title else podcast.title
-                val updatedPodcast = podcast.copy(
-                    title = realTitle,
-                    artworkUrl = if (podcast.artworkUrl.isNotBlank()) podcast.artworkUrl else parsed.podcast.artworkUrl,
-                    author = if (podcast.author.isNotBlank()) podcast.author else parsed.podcast.author,
-                    description = if (podcast.description.isNotBlank()) podcast.description else parsed.podcast.description,
-                    fundingUrl = parsed.podcast.fundingUrl ?: podcast.fundingUrl,
-                    fundingMessage = parsed.podcast.fundingMessage ?: podcast.fundingMessage,
-                    valueJson = parsed.podcast.valueJson ?: podcast.valueJson
-                )
+                val newArtwork = parsed.podcast.artworkUrl.ifBlank { podcast.artworkUrl }
+                val newAuthor = parsed.podcast.author.ifBlank { podcast.author }
+                val newDesc = parsed.podcast.description.ifBlank { podcast.description }
+                val newEtag = response.header("ETag") ?: podcast.httpEtag
+                val newLastModified = response.header("Last-Modified") ?: podcast.httpLastModified
 
                 db.withTransaction {
                     // Deactivate any existing live episodes for this podcast before updating with fresh feed data
                     episodeDao.deactivateLiveEpisodesForPodcast(podcast.id)
                     episodeDao.markEndedLiveEpisodesCompleted()
 
+                    // Insert any brand new episodes
                     episodeDao.insertEpisodes(episodes)
+
+                    // Refresh mutable feed fields on existing episodes without touching playback state
                     for (ep in episodes) {
+                        episodeDao.updateEpisodeFeedFields(
+                            id = ep.id,
+                            title = ep.title,
+                            audioUrl = ep.audioUrl,
+                            durationSeconds = ep.durationSeconds,
+                            description = ep.description,
+                            artworkUrl = ep.artworkUrl,
+                            feedOrder = ep.feedOrder
+                        )
                         episodeDao.updateEpisodeMetadata(
                             id = ep.id,
                             transcriptUrl = ep.transcriptUrl,
@@ -201,16 +234,26 @@ class PodcastRepository(context: Context) {
                         val defaultNewsDays = getDefaultNewsRetentionDays()
                         val retentionDays = if (podcast.newsRetentionDays > 0) podcast.newsRetentionDays else defaultNewsDays
                         val cutoff = System.currentTimeMillis() - (retentionDays.toLong() * 86_400_000L)
-                        val purgedCount = episodeDao.purgeExpiredNewsEpisodesForPodcast(podcast.id, cutoff, System.currentTimeMillis())
+                        val purgedCount = episodeDao.dismissExpiredNews(podcast.id, cutoff, System.currentTimeMillis())
                         queueDao.removeExpiredEpisodesForPodcast(podcast.id, cutoff)
                         if (purgedCount > 0) {
-                            Log.i("EagerRefresh", "Purged $purgedCount expired news episodes for '${podcast.title}' (cutoff: $cutoff)")
+                            Log.i("EagerRefresh", "Dismissed $purgedCount expired news episodes for '${podcast.title}' (cutoff: $cutoff)")
                         }
                     }
 
-                    // Update podcast metadata if missing (e.g. from OPML import where artwork/author are empty)
-                    // and preserve/update Podcasting 2.0 tags like funding and value (V4V)
-                    podcastDao.updatePodcast(updatedPodcast)
+                    // Column-targeted update: Never overwrite user-editable rules (priority, speed, strategy, etc.)
+                    podcastDao.updateFeedMetadata(
+                        id = podcast.id,
+                        title = realTitle,
+                        artworkUrl = newArtwork,
+                        author = newAuthor,
+                        description = newDesc,
+                        fundingUrl = parsed.podcast.fundingUrl ?: podcast.fundingUrl,
+                        fundingMessage = parsed.podcast.fundingMessage ?: podcast.fundingMessage,
+                        valueJson = parsed.podcast.valueJson ?: podcast.valueJson,
+                        httpEtag = newEtag,
+                        httpLastModified = newLastModified
+                    )
                     if (realTitle.isNotBlank()) {
                         episodeDao.updatePodcastTitleForEpisodes(podcast.id, realTitle)
                     }
@@ -275,8 +318,6 @@ class PodcastRepository(context: Context) {
     }
 
     // Global settings for queue diversity & news
-    private val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
-
     fun getGlobalConsecutivePlayLimit(): Int = prefs.getInt("global_consecutive_limit", 1)
 
     fun setGlobalConsecutivePlayLimit(limit: Int) {
@@ -453,8 +494,6 @@ class PodcastRepository(context: Context) {
     // Within each tier, feeds are ordered by least-recently completed podcast first so feeds rotate
     // fairly across app restarts and feed refreshes rather than resetting alphabetically.
     suspend fun generateProgrammedQueue() = withContext(Dispatchers.IO) {
-        podcastDao.enforceNoAgendaNewsStrategy()
-        podcastDao.enforceEagerToBeHealthyCategory()
         purgeExpiredNewsEpisodes()
 
         val podcasts = podcastDao.getAllPodcastsSync()
@@ -644,18 +683,63 @@ class PodcastRepository(context: Context) {
     }
 
     suspend fun updatePlaybackProgress(episodeId: String, positionSec: Long, isCompleted: Boolean) = withContext(Dispatchers.IO) {
-        episodeDao.updatePlaybackProgress(episodeId, positionSec, isCompleted, System.currentTimeMillis())
-        // Auto-cleanup: If completed, remove from queue and delete offline file!
         if (isCompleted) {
-            queueDao.removeEpisodeFromQueue(episodeId)
-            try {
-                com.eagertolisten.app.data.download.PodcastDownloadManager(appContext).deleteDownloadedEpisode(episodeId)
-            } catch (_: Exception) {}
+            markEpisodeFinished(episodeId)
+        } else {
+            val existing = episodeDao.getEpisodeByIdSync(episodeId)
+            // Invariant I2: Never convert isCompleted = true to false except explicit mark unplayed
+            if (existing != null && existing.isCompleted) {
+                return@withContext
+            }
+            episodeDao.updatePlaybackProgress(episodeId, positionSec, false, System.currentTimeMillis())
         }
     }
 
+    suspend fun markEpisodeFinished(episodeId: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        episodeDao.markEpisodeFinished(episodeId, now)
+        queueDao.removeEpisodeFromQueue(episodeId)
+        try {
+            com.eagertolisten.app.data.download.PodcastDownloadManager(appContext).deleteDownloadedEpisode(episodeId)
+        } catch (_: Exception) {}
+        generateProgrammedQueue()
+    }
+
+    suspend fun markEpisodeSkipped(episodeId: String, positionSec: Long) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        episodeDao.markEpisodeSkipped(episodeId, positionSec, now)
+        queueDao.removeEpisodeFromQueue(episodeId)
+        generateProgrammedQueue()
+    }
+
+    suspend fun markEpisodeUnplayed(episodeId: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        episodeDao.markEpisodeUnplayed(episodeId, now)
+        generateProgrammedQueue()
+    }
+
     suspend fun unsubscribe(podcastId: String) = withContext(Dispatchers.IO) {
-        podcastDao.deletePodcastById(podcastId)
+        val cleanId = com.eagertolisten.app.data.model.FeedUrl.normalize(podcastId).ifBlank { podcastId.trim() }
+        podcastDao.softUnsubscribe(cleanId)
+        val queueItems = queueDao.getAllQueueItemsSync().filter { it.podcastId == cleanId }
+        val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(appContext)
+        for (item in queueItems) {
+            queueDao.removeEpisodeFromQueue(item.episodeId)
+            try {
+                downloadMgr.deleteDownloadedEpisode(item.episodeId)
+            } catch (_: Exception) {}
+        }
+        val episodes = episodeDao.getEpisodesForPodcastSync(cleanId)
+        for (ep in episodes) {
+            try {
+                downloadMgr.deleteDownloadedEpisode(ep.id)
+            } catch (_: Exception) {}
+        }
+        generateProgrammedQueue()
+    }
+
+    suspend fun permanentlyDeleteRemovedPodcasts() = withContext(Dispatchers.IO) {
+        podcastDao.deletePermanentlyRemovedPodcasts()
     }
 
     // Podcasting 2.0: Fetch interactive transcript

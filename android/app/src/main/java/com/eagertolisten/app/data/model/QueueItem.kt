@@ -17,7 +17,8 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index("episodeId", unique = true),
-        Index("orderIndex")
+        Index("orderIndex"),
+        Index(value = ["orderIndex", "episodeId"], name = "idx_queue_order")
     ]
 )
 data class QueueItem(
@@ -26,5 +27,7 @@ data class QueueItem(
     val episodeId: String,
     val podcastId: String,
     val orderIndex: Int,
-    val addedAt: Long = System.currentTimeMillis()
+    val addedAt: Long = System.currentTimeMillis(),
+    val isManual: Boolean = false,
+    val manualIndex: Int? = null
 )

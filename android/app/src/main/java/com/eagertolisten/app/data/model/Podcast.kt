@@ -32,13 +32,19 @@ data class Podcast(
     // News Retention Window in Days (for NEWS strategy)
     val newsRetentionDays: Int = 3,
     // Consecutive Episodes Limit (-1 = inherit global setting)
-    val consecutivePlayLimit: Int = -1
+    val consecutivePlayLimit: Int = -1,
+
+    // Soft-unsubscribe and sync metadata
+    val unsubscribedAt: Long? = null,
+    val settingsUpdatedAt: Long = 0L,
+    val httpEtag: String? = null,
+    val httpLastModified: String? = null
 )
 
 enum class PlayOrderStrategy(val displayName: String, val description: String) {
-    CHRONOLOGICAL("Chronological", "Serial stories & classes (oldest unplayed first)"),
-    REVERSE_CHRONOLOGICAL("Reverse Chronological", "Standard newest unplayed first"),
+    CHRONOLOGICAL("Chronological", "Serial stories & courses (oldest unplayed first)"),
+    REVERSE_CHRONOLOGICAL("Reverse Chronological", "Always the newest unplayed episode"),
     NEWS("News", "Updates first, last X unplayed days in chronological order"),
-    EVERGREEN("Evergreen / Knowledge", "Newest unplayed first, then next newest unplayed")
+    EVERGREEN("Evergreen / Knowledge", "Evergreen: newest episode first when there's something new; otherwise continue the back catalog from the oldest unplayed episode.")
 }
 

@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.QueueItem
 import kotlinx.coroutines.flow.Flow
@@ -39,14 +40,17 @@ abstract class QueueDao {
     @Query("SELECT * FROM queue_items ORDER BY orderIndex ASC")
     abstract fun getAllQueueItems(): Flow<List<QueueItem>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     abstract suspend fun insertQueueItem(item: QueueItem)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     abstract suspend fun insertQueueItems(items: List<QueueItem>)
 
     @Query("DELETE FROM queue_items WHERE episodeId = :episodeId")
     abstract suspend fun removeEpisodeFromQueue(episodeId: String): Int
+
+    @Query("DELETE FROM queue_items WHERE isManual = 0")
+    abstract suspend fun clearProgrammedQueue(): Int
 
     @Query("DELETE FROM queue_items")
     abstract suspend fun clearQueue(): Int
@@ -56,6 +60,15 @@ abstract class QueueDao {
 
     @Query("SELECT MAX(orderIndex) FROM queue_items")
     abstract suspend fun getMaxOrderIndex(): Int?
+
+    @Query("SELECT MIN(manualIndex) FROM queue_items WHERE isManual = 1")
+    abstract suspend fun getMinManualIndex(): Int?
+
+    @Query("SELECT MAX(manualIndex) FROM queue_items WHERE isManual = 1")
+    abstract suspend fun getMaxManualIndex(): Int?
+
+    @Query("SELECT * FROM queue_items WHERE isManual = 1 ORDER BY manualIndex ASC")
+    abstract suspend fun getPinnedItemsSync(): List<QueueItem>
 
     @Query("SELECT COUNT(*) FROM queue_items WHERE podcastId = :podcastId")
     abstract suspend fun countEpisodesInQueueForPodcast(podcastId: String): Int
@@ -78,11 +91,32 @@ abstract class QueueDao {
     @Transaction
     open suspend fun enqueueEpisodeTop(episodeId: String, podcastId: String) {
         removeEpisodeFromQueue(episodeId)
-        val currentItems = getAllQueueItemsSync()
-        currentItems.forEach { item ->
-            updateOrderIndex(item.episodeId, item.orderIndex + 1)
-        }
-        insertQueueItem(QueueItem(episodeId = episodeId, podcastId = podcastId, orderIndex = 0))
+        val minManual = getMinManualIndex() ?: 0
+        insertQueueItem(
+            QueueItem(
+                episodeId = episodeId,
+                podcastId = podcastId,
+                orderIndex = 0,
+                isManual = true,
+                manualIndex = minManual - 1
+            )
+        )
+    }
+
+    @Transaction
+    open suspend fun appendManualEpisode(episodeId: String, podcastId: String) {
+        removeEpisodeFromQueue(episodeId)
+        val maxManual = getMaxManualIndex() ?: 0
+        val maxOrder = getMaxOrderIndex() ?: 0
+        insertQueueItem(
+            QueueItem(
+                episodeId = episodeId,
+                podcastId = podcastId,
+                orderIndex = maxOrder + 1,
+                isManual = true,
+                manualIndex = maxManual + 1
+            )
+        )
     }
 
     @Transaction

@@ -5,8 +5,26 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.eagertolisten.app.data.model.Episode
 import kotlinx.coroutines.flow.Flow
+
+data class EpisodeQueueProjection(
+    val id: String,
+    val podcastId: String,
+    val publishedAt: Long,
+    val feedOrder: Int,
+    val playbackPositionSeconds: Long,
+    val isCompleted: Boolean,
+    val isDismissed: Boolean,
+    val skippedAt: Long?,
+    val skipCount: Int
+)
+
+data class PodcastHighWaterMark(
+    val podcastId: String,
+    val maxPub: Long
+)
 
 @Dao
 interface EpisodeDao {
@@ -25,11 +43,34 @@ interface EpisodeDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertEpisodes(episodes: List<Episode>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertOrUpdateEpisode(episode: Episode)
+
+    @Upsert
+    suspend fun upsertEpisodes(episodes: List<Episode>)
 
     @Update
     suspend fun updateEpisode(episode: Episode)
+
+    @Query("""
+        UPDATE episodes 
+        SET title = :title,
+            audioUrl = :audioUrl,
+            durationSeconds = CASE WHEN :durationSeconds > 0 THEN :durationSeconds ELSE durationSeconds END,
+            description = :description,
+            artworkUrl = :artworkUrl,
+            feedOrder = :feedOrder
+        WHERE id = :id
+    """)
+    suspend fun updateEpisodeFeedFields(
+        id: String,
+        title: String,
+        audioUrl: String,
+        durationSeconds: Long,
+        description: String,
+        artworkUrl: String?,
+        feedOrder: Int
+    ): Int
 
     @Query("""
         UPDATE episodes 
@@ -45,16 +86,101 @@ interface EpisodeDao {
         updatedAt: Long
     ): Int
 
+    @Query("""
+        UPDATE episodes 
+        SET isCompleted = 1,
+            completedAt = :completedAt,
+            playbackPositionSeconds = durationSeconds,
+            updatedAt = :completedAt
+        WHERE id = :episodeId
+    """)
+    suspend fun markEpisodeFinished(episodeId: String, completedAt: Long = System.currentTimeMillis()): Int
+
+    @Query("""
+        UPDATE episodes 
+        SET skippedAt = :skippedAt,
+            skipCount = skipCount + 1,
+            playbackPositionSeconds = :positionSec,
+            updatedAt = :skippedAt
+        WHERE id = :episodeId
+    """)
+    suspend fun markEpisodeSkipped(
+        episodeId: String,
+        positionSec: Long,
+        skippedAt: Long = System.currentTimeMillis()
+    ): Int
+
+    @Query("""
+        UPDATE episodes 
+        SET isDismissed = 1,
+            dismissReason = :reason,
+            updatedAt = :timestamp
+        WHERE id = :episodeId
+    """)
+    suspend fun markEpisodeDismissed(
+        episodeId: String,
+        reason: String,
+        timestamp: Long = System.currentTimeMillis()
+    ): Int
+
+    @Query("""
+        UPDATE episodes 
+        SET isDismissed = 1,
+            dismissReason = 'EXPIRED_NEWS',
+            updatedAt = :timestamp
+        WHERE podcastId = :podcastId AND isCompleted = 0 AND publishedAt > 0 AND publishedAt < :cutoffTimestamp
+    """)
+    suspend fun dismissExpiredNews(podcastId: String, cutoffTimestamp: Long, timestamp: Long = System.currentTimeMillis()): Int
+
+    @Query("""
+        UPDATE episodes 
+        SET isCompleted = 0,
+            completedAt = NULL,
+            playbackPositionSeconds = 0,
+            skippedAt = NULL,
+            skipCount = 0,
+            isDismissed = 0,
+            dismissReason = NULL,
+            updatedAt = :timestamp
+        WHERE id = :episodeId
+    """)
+    suspend fun markEpisodeUnplayed(episodeId: String, timestamp: Long = System.currentTimeMillis()): Int
+
+    @Query("""
+        SELECT id, podcastId, publishedAt, feedOrder, playbackPositionSeconds, isCompleted, isDismissed, skippedAt, skipCount
+        FROM episodes 
+        WHERE podcastId IN (:podcastIds) 
+          AND isCompleted = 0 
+          AND isDismissed = 0 
+          AND isLive = 0
+    """)
+    suspend fun getEligibleEpisodesForQueueSync(podcastIds: List<String>): List<EpisodeQueueProjection>
+
+    @Query("""
+        SELECT podcastId, MAX(publishedAt) AS maxPub 
+        FROM episodes 
+        WHERE isCompleted = 1 AND publishedAt > 0 
+        GROUP BY podcastId
+    """)
+    suspend fun getAllHeardHighWaterMarks(): List<PodcastHighWaterMark>
+
+    @Query("""
+        SELECT MAX(publishedAt) 
+        FROM episodes 
+        WHERE podcastId = :podcastId AND isCompleted = 1 AND publishedAt > 0
+    """)
+    suspend fun getHeardHighWaterMark(podcastId: String): Long?
+
     @Query("UPDATE episodes SET podcastTitle = :title WHERE podcastId = :podcastId")
     suspend fun updatePodcastTitleForEpisodes(podcastId: String, title: String): Int
 
-    @Query("SELECT * FROM episodes WHERE isCompleted = 0 AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE isCompleted = 0 AND isDismissed = 0 AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC LIMIT :limit")
     fun getUnplayedEpisodes(limit: Int = 200): Flow<List<Episode>>
 
-    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY updatedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
     fun getPlayedEpisodes(limit: Int = 100): Flow<List<Episode>>
 
-    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY updatedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
     suspend fun getRecentPlayedEpisodesSync(limit: Int = 100): List<Episode>
 
     // Hot List: Unplayed episodes belonging to Priority 1 podcasts (excluding expired news)

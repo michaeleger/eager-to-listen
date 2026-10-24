@@ -17,12 +17,14 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index("podcastId"),
-        Index("publishedAt")
+        Index("publishedAt"),
+        Index(value = ["podcastId", "isCompleted", "publishedAt"], name = "idx_episodes_podcast_pub"),
+        Index(value = ["isCompleted", "updatedAt"], name = "idx_episodes_completed_updated")
     ]
 )
 data class Episode(
     @PrimaryKey
-    val id: String, // Enclosure URL or GUID
+    val id: String, // format: EpisodeId.of(podcastId, guid, enclosureUrl)
     val podcastId: String,
     val podcastTitle: String,
     val title: String,
@@ -52,5 +54,14 @@ data class Episode(
 
     // Offline / Auto-Download Support
     val localFilePath: String? = null,
-    val isDownloaded: Boolean = false
+    val isDownloaded: Boolean = false,
+
+    // Phase 1: Data integrity, dismissal, skips, ordering
+    val feedOrder: Int = 0,
+    val isDismissed: Boolean = false,
+    val dismissReason: String? = null,
+    val completedAt: Long? = null,
+    val skippedAt: Long? = null,
+    val skipCount: Int = 0,
+    val downloadBytes: Long? = null
 )

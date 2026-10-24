@@ -46,10 +46,10 @@ class PodcastIndexClient(private val context: Context) {
         )
 
         val PODCAST_EAGER_TO_BE_HEALTHY = SearchResult(
-            title = "Eager to be Healthy",
-            author = "Michael & Guests",
-            feedUrl = "https://anchor.fm/s/eagertobehealthy/podcast/rss",
-            artworkUrl = "https://eagertobehealthy.com/wp-content/uploads/2021/01/cropped-logo-1.png",
+            title = "Eager to Be Healthy - a Health and Happiness Podcast",
+            author = "Michael Scott Eger",
+            feedUrl = "https://api.riverside.com/hosting/drlxDc7x.rss",
+            artworkUrl = "https://hosting-media.riverside.com/media/podcasts/25c060e8-e598-4782-920d-b96b89a1ffb0/logos/6046bb02-7f6e-4dfa-9ece-f617d9ce3508.jpeg",
             genres = listOf("Health & Fitness", "Self-Help", "Wellness", "Featured")
         )
 
@@ -109,7 +109,7 @@ class PodcastIndexClient(private val context: Context) {
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
         val qLower = query.lowercase().trim()
         val pinned = mutableListOf<SearchResult>()
-        if (qLower.contains("no agenda") || qLower == "news" || qLower.contains("current events")) {
+        if (qLower.contains("no agenda")) {
             pinned.add(PODCAST_NO_AGENDA)
         }
         if (qLower.contains("eager") || qLower == "health" || qLower.contains("wellness") ||

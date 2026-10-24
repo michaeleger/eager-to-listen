@@ -48,7 +48,11 @@ class FeedParserTest {
         val parsed = parser.parse(stream, "https://example.com/missing.xml")
 
         assertEquals(2, parsed.episodes.size)
-        assertNotNull(parsed.episodes[0])
+        // Missing or unparseable pubDate must be 0L, not System.currentTimeMillis()
+        assertEquals(0L, parsed.episodes[0].publishedAt)
+        assertEquals(0L, parsed.episodes[1].publishedAt)
+        assertEquals(0, parsed.episodes[0].feedOrder)
+        assertEquals(1, parsed.episodes[1].feedOrder)
     }
 
     @Test
@@ -60,5 +64,20 @@ class FeedParserTest {
         assertEquals(1, parsed.episodes.size)
         val ep = parsed.episodes[0]
         assertNotNull(ep.transcriptUrl)
+        // Prefer text/vtt over text/plain and text/html
+        assertEquals("https://example.com/trans.vtt", ep.transcriptUrl)
+        assertEquals("text/vtt", ep.transcriptType)
+    }
+
+    @Test
+    fun testStrategyInference() {
+        // "Classic" should not trigger "class" rule for chronological
+        assertEquals("EVERGREEN", FeedParser.inferPlayOrderStrategy("Classic Rock Music", "Discussion about vintage rock"))
+        // "Daily News" should trigger NEWS
+        assertEquals("NEWS", FeedParser.inferPlayOrderStrategy("Daily News Roundup", "Headlines and politics"))
+        // "History of Rome" should trigger CHRONOLOGICAL
+        assertEquals("CHRONOLOGICAL", FeedParser.inferPlayOrderStrategy("The History of Rome", "Chronological narrative"))
+        // itunes:type serial should trigger CHRONOLOGICAL
+        assertEquals("CHRONOLOGICAL", FeedParser.inferPlayOrderStrategy("Serial Audio Drama", "", itunesType = "serial"))
     }
 }

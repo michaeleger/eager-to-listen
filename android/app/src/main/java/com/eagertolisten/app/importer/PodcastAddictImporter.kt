@@ -7,6 +7,8 @@ import android.net.Uri
 import android.util.Xml
 import com.eagertolisten.app.data.EagerDatabase
 import com.eagertolisten.app.data.model.Episode
+import com.eagertolisten.app.data.model.EpisodeId
+import com.eagertolisten.app.data.model.FeedUrl
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.parser.FeedParser
 import kotlinx.coroutines.Dispatchers
@@ -149,7 +151,7 @@ class PodcastAddictImporter(private val context: Context) {
                     val skipOutro = getColumnInt(cursor, 0, "skip_last_seconds", "skip_outro", "skip_last")
 
                     if (!feedUrl.isNullOrBlank()) {
-                        val eagerId = feedUrl.trim()
+                        val eagerId = FeedUrl.normalize(feedUrl).ifBlank { feedUrl.trim() }
                         if (rawId.isNotEmpty()) {
                             podcastIdMap[rawId] = eagerId
                         }
@@ -161,7 +163,7 @@ class PodcastAddictImporter(private val context: Context) {
                         podcastsToInsert.add(
                             Podcast(
                                 id = eagerId,
-                                feedUrl = feedUrl,
+                                feedUrl = eagerId,
                                 title = title,
                                 author = author ?: "",
                                 artworkUrl = artworkUrl ?: "",
@@ -180,7 +182,7 @@ class PodcastAddictImporter(private val context: Context) {
             }
 
             if (podcastsToInsert.isNotEmpty()) {
-                podcastDao.insertPodcasts(podcastsToInsert)
+                podcastDao.insertPodcastsIgnore(podcastsToInsert)
                 podcastsCount = podcastsToInsert.size
             }
 
@@ -196,9 +198,9 @@ class PodcastAddictImporter(private val context: Context) {
                         val epTitle = getColumnString(cursor, "title", "name") ?: "Episode"
                         val audioUrl = getColumnString(cursor, "download_url", "stream_url", "url", "enclosure_url", "link") ?: ""
                         val guid = getColumnString(cursor, "guid", "id", "_id") ?: audioUrl
-                        val epId = if (guid.isNotEmpty()) UUID.nameUUIDFromBytes("$eagerPodcastId:$guid".toByteArray()).toString() else UUID.randomUUID().toString()
+                        val epId = EpisodeId.of(podcastId = eagerPodcastId, guid = guid, enclosureUrl = audioUrl)
 
-                        val pubDate = getColumnLong(cursor, System.currentTimeMillis(), "publication_date", "pub_date", "date", "published_at")
+                        val pubDate = getColumnLong(cursor, 0L, "publication_date", "pub_date", "date", "published_at")
                         val duration = getColumnLong(cursor, 0L, "duration", "total_time", "length")
 
                         val rawPos = getColumnLong(cursor, 0L, "playback_position", "position", "progress")
@@ -218,7 +220,8 @@ class PodcastAddictImporter(private val context: Context) {
                                 publishedAt = pubDate,
                                 durationSeconds = duration,
                                 playbackPositionSeconds = posSec,
-                                isCompleted = isCompleted
+                                isCompleted = isCompleted,
+                                completedAt = if (isCompleted) System.currentTimeMillis() else null
                             )
                         )
                     }
@@ -260,12 +263,12 @@ class PodcastAddictImporter(private val context: Context) {
                     val category = parser.getAttributeValue(null, "category") ?: parentCategory
 
                     if (!xmlUrl.isNullOrBlank()) {
-                        val id = xmlUrl.trim()
+                        val id = FeedUrl.normalize(xmlUrl).ifBlank { xmlUrl.trim() }
                         val strategy = FeedParser.inferPlayOrderStrategy(title, category = category)
                         importedPodcasts.add(
                             Podcast(
                                 id = id,
-                                feedUrl = xmlUrl,
+                                feedUrl = id,
                                 title = title,
                                 author = "",
                                 artworkUrl = "",
@@ -289,7 +292,7 @@ class PodcastAddictImporter(private val context: Context) {
         }
 
         if (importedPodcasts.isNotEmpty()) {
-            podcastDao.insertPodcasts(importedPodcasts)
+            podcastDao.insertPodcastsIgnore(importedPodcasts)
         }
 
         return ImportResult(
