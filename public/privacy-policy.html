@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Eager to Listen Podcast Player</title>
+  <meta name="description" content="Privacy Policy for Eager to Listen podcast player. We prioritize listener privacy with local-first storage and no tracking.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-darkest: #070D0A;
+      --bg-card: #0F1A14;
+      --bg-surface: #16261E;
+      --border-subtle: rgba(235, 94, 23, 0.15);
+      --orange-primary: #EB5E17;
+      --orange-bright: #FF7024;
+      --green-accent: #2EB872;
+      --text-primary: #F0F5F2;
+      --text-secondary: #9EB5A9;
+      --text-muted: #6B8276;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-darkest);
+      color: var(--text-primary);
+      line-height: 1.7;
+      padding: 40px 20px 80px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 8px 16px;
+      border-radius: 9999px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--orange-bright);
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+      color: var(--text-primary);
+    }
+
+    .last-updated {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--orange-bright);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    ul {
+      list-style-type: disc;
+      padding-left: 24px;
+      margin-bottom: 14px;
+      color: var(--text-secondary);
+    }
+
+    li {
+      margin-bottom: 8px;
+    }
+
+    .highlight-badge {
+      display: inline-block;
+      background: rgba(46, 184, 114, 0.15);
+      border: 1px solid rgba(46, 184, 114, 0.3);
+      color: var(--green-accent);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      margin-right: 6px;
+    }
+
+    .footer {
+      margin-top: 50px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 24px;
+    }
+
+    a {
+      color: var(--orange-bright);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo-badge">
+        <span>🎧</span> Eager to Listen
+      </div>
+      <h1>Privacy Policy</h1>
+      <div class="last-updated">Effective Date: October 15, 2026</div>
+    </div>
+
+    <div class="card">
+      <h2>1. Overview & Core Privacy Commitment</h2>
+      <p>
+        <strong>Eager to Listen</strong> ("we", "us", or "our") is designed with a strict <strong>local-first, privacy-respecting philosophy</strong>. We believe your media consumption habits, podcast subscriptions, and listening patterns are private.
+      </p>
+      <p>
+        We do <strong>not</strong> track your identity, we do <strong>not</strong> sell personal information, and we do <strong>not</strong> inject third-party behavioral advertising SDKs into our application.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>2. Data Storage & Management</h2>
+      <p>
+        All application state is stored locally on your device in a secure SQLite database:
+      </p>
+      <ul>
+        <li><strong>Subscriptions & Queue:</strong> Your subscribed podcast RSS feeds, pending playback queues, and episode ratings remain stored exclusively on your device.</li>
+        <li><strong>Listening Progress:</strong> Playback timestamps and resume positions are recorded locally to resume podcasts seamlessly.</li>
+        <li><strong>Inspiration Bookmarks:</strong> Personal audio clips and notes captured during playback stay on your device unless you explicitly export or share them.</li>
+        <li><strong>Data Erasure:</strong> You can wipe all data at any time by clearing application storage in Android Settings or by uninstalling the application.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Device Permissions & Why They Are Required</h2>
+      <p>
+        To function as a fully featured podcast player and Android Auto application, Eager to Listen requests the following Android permissions:
+      </p>
+      <ul>
+        <li>
+          <span class="highlight-badge">FOREGROUND_SERVICE_MEDIA_PLAYBACK</span>
+          <strong>Background Audio Playback:</strong> Required by Android to allow audio playback to continue uninterrupted when you lock your screen, switch to other applications, or drive with Android Auto. It displays media controls on your lock screen and notification shade.
+        </li>
+        <li>
+          <span class="highlight-badge">POST_NOTIFICATIONS</span>
+          <strong>Playback & Download Notifications:</strong> Required on Android 13+ to display the active playback notification controller (play, pause, 90s forward skip, 15s rewind) and inform you when offline downloads complete.
+        </li>
+        <li>
+          <span class="highlight-badge">INTERNET</span>
+          <strong>RSS Feed & Audio Streaming:</strong> Required to fetch public podcast RSS feeds, download episode metadata, and stream episode audio directly from podcast hosts.
+        </li>
+        <li>
+          <span class="highlight-badge">WAKE_LOCK</span>
+          <strong>Prevent Playback Sleep:</strong> Keeps the audio processing pipeline active during playback so playback does not stall when your screen turns off.
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4. Android Auto Integration</h2>
+      <p>
+        When connected to Android Auto or Android Automotive OS, Eager to Listen exposes browsable categories (Queue, Hot List, Daily News, Subscriptions) and in-car playback controls. No vehicle telemetry, location data, or driver personal information is accessed, logged, or transmitted.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>5. Network Connections & Third-Party Hosts</h2>
+      <p>
+        When you stream or download a podcast, the application connects directly to the audio host designated by the podcast publisher's RSS feed (e.g., Megaphone, Libsyn, Omny, Buzzsprout). These requests are direct client-to-server HTTP audio requests standard to all open podcast players.
+      </p>
+      <p>
+        If you search for new podcasts, queries are resolved via the open <strong>Podcast Index</strong> API. No identifying personal account information is transmitted.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>6. Optional Cloud Sync</h2>
+      <p>
+        If you voluntarily choose to enable Google Drive Backup in the application settings, the app will upload an encrypted backup of your subscriptions and queue to your personal Google Drive storage. This data is private to your Google account and is never accessible to us.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>7. Children's Privacy</h2>
+      <p>
+        Our application does not knowingly collect any personal identifiable information from children under the age of 13.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>8. Policy Updates & Contact</h2>
+      <p>
+        We may occasionally update this Privacy Policy to reflect app updates or regulatory standards. If you have questions about this policy, please reach out to:
+      </p>
+      <p>
+        <strong>Email:</strong> <a href="mailto:support@eagertolisten.com">support@eagertolisten.com</a>
+      </p>
+    </div>
+
+    <div class="footer">
+      &copy; 2026 Eager to Listen. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Eager to Listen</string>
+    <string name="title_activity_main">Eager to Listen</string>
+    <string name="package_name">com.eagertolisten.app</string>
+    <string name="custom_url_scheme">com.eagertolisten.app</string>
+    <string name="podcast_eager_to_be_healthy">Eager to be Healthy</string>
+    <string name="shortcut_eager_to_be_healthy_short">Eager to be Healthy</string>
+    <string name="shortcut_eager_to_be_healthy_long">Play Eager to be Healthy</string>
+    <string name="shortcut_play_playlist_short">Pending Playlist</string>
+    <string name="shortcut_play_playlist_long">Play Pending Playlist on Eager to Listen</string>
+</resources>

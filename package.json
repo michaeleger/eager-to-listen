@@ -1,0 +1,18 @@
+{
+  "name": "eager-to-be-healthy-podcast-player",
+  "version": "1.0.0",
+  "description": "Eager to Listen podcast player featuring Podcast 2.0 synchronized transcripts and programmable queue support.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  },
+  "private": true
+}

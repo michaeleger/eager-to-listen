@@ -1,0 +1,50 @@
+# OS & IDE
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+*.iml
+.vscode/
+
+# Build and Gradle
+.gradle/
+build/
+android/.gradle/
+android/app/build/
+android/app/build.gradle.kts.cache/
+android/.idea/
+android/*.iml
+android/local.properties
+android/captures/
+android/.navigation/
+android/.cxx/
+android/.externalNativeBuild/
+
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Database & temporary local data
+*.sqlite
+*.db
+temp_device.db
+device_db.sqlite
+eager_local.db
+
+# Archives & Large Outputs
+*.zip
+*.tar.gz
+*.apk
+*.aab
+public/*.apk
+website_update_package/
+
+# Keep specific docs & public web files
+!public/*.png
+!public/*.jpg
+!public/*.html
+!public/*.js
+!public/*.css
+!public/*.xml
+!public/*.vtt

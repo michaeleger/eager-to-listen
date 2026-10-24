@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eager to Listen — The Intelligent Broadcast-Style Podcast Player</title>
+  <meta name="description" content="Eager to Listen introduces Curated Airwaves (Radio U): an NPR-style algorithmic scheduler that eliminates binge fatigue and queue micromanagement with Podcasting 2.0 standards.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-darkest: #070D0A;
+      --bg-card: #0F1A14;
+      --bg-surface: #16261E;
+      --bg-elevated: #1F352B;
+      --border-subtle: rgba(235, 94, 23, 0.15);
+      --border-focus: rgba(235, 94, 23, 0.45);
+      --orange-primary: #EB5E17;
+      --orange-bright: #FF7024;
+      --orange-glow: rgba(235, 94, 23, 0.25);
+      --green-accent: #2EB872;
+      --text-primary: #F0F5F2;
+      --text-secondary: #9EB5A9;
+      --text-muted: #6B8276;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --radius-full: 9999px;
+      --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.35);
+      --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-darkest);
+      color: var(--text-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--orange-bright);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    a:hover {
+      color: #FFA066;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header & Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(7, 13, 10, 0.85);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .nav-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 72px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, var(--orange-primary), #B84308);
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      box-shadow: 0 2px 10px var(--orange-glow);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .nav-links a:hover {
+      color: var(--text-primary);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--orange-bright), var(--orange-primary));
+      color: #FFF;
+      box-shadow: 0 4px 18px var(--orange-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(235, 94, 23, 0.4);
+      color: #FFF;
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-focus);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 90px 0 60px;
+      position: relative;
+    }
+
+    .hero-glow {
+      position: absolute;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 650px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(235, 94, 23, 0.15) 0%, rgba(46, 184, 114, 0.05) 50%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(235, 94, 23, 0.12);
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-full);
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--orange-bright);
+      margin-bottom: 24px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, #FFF 20%, #FF9966 80%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero h1 .gradient-orange {
+      background: linear-gradient(135deg, var(--orange-bright), #FFA066);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p.lead {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 36px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    /* Device Preview Showcase */
+    .hero-showcase {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      position: relative;
+    }
+
+    .phone-mockup-wrapper {
+      position: relative;
+      max-width: 380px;
+      border-radius: 38px;
+      padding: 10px;
+      background: linear-gradient(145deg, #2D483A, #0D1611);
+      box-shadow: 0 25px 60px -10px rgba(0,0,0,0.8), 0 0 50px rgba(235,94,23,0.15);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .phone-screen {
+      border-radius: 30px;
+      overflow: hidden;
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 2px solid #000;
+    }
+
+    /* Section Headers */
+    .section-header {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 60px;
+    }
+
+    .section-tag {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--orange-bright);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .section-title {
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+    }
+
+    /* Pain Points vs Solutions Grid */
+    .pain-points-section {
+      padding: 100px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+    }
+
+    .comparison-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius-md);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .comparison-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-focus);
+    }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .pain-box {
+      background: rgba(239, 68, 68, 0.08);
+      border-left: 3px solid #EF4444;
+      padding: 12px 14px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 0.9rem;
+      color: #FCA5A5;
+      margin-bottom: 16px;
+    }
+
+    .pain-box strong {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #F87171;
+      margin-bottom: 4px;
+    }
+
+    .solution-box {
+      background: rgba(46, 184, 114, 0.08);
+      border-left: 3px solid var(--green-accent);
+      padding: 12px 14px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      font-size: 0.92rem;
+      color: #A7F3D0;
+    }
+
+    .solution-box strong {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--green-accent);
+      margin-bottom: 4px;
+    }
+
+    /* Screenshots & Feature Showcase Grid */
+    .showcase-section {
+      padding: 100px 0;
+      background: linear-gradient(180deg, var(--bg-darkest) 0%, #0A130E 50%, var(--bg-darkest) 100%);
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .feature-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 60px;
+      margin-bottom: 90px;
+    }
+
+    .feature-row.reverse {
+      direction: rtl;
+    }
+
+    .feature-row.reverse .feature-text {
+      direction: ltr;
+    }
+
+    .feature-text h3 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      line-height: 1.25;
+    }
+
+    .feature-text p {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    .feature-bullets {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .feature-bullets li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 0.95rem;
+      color: var(--text-primary);
+    }
+
+    .feature-bullets li span.check {
+      color: var(--orange-bright);
+      font-weight: 700;
+      font-size: 1.1rem;
+      line-height: 1.2;
+    }
+
+    .screen-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+      position: relative;
+    }
+
+    .screen-card img {
+      max-width: 100%;
+      height: auto;
+      max-height: 600px;
+      border-radius: 14px;
+      display: block;
+      margin: 0 auto;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .screen-caption {
+      margin-top: 14px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Specifications Table */
+    .specs-section {
+      padding: 90px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .specs-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .specs-table th, .specs-table td {
+      padding: 16px 24px;
+      text-align: left;
+      font-size: 0.95rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .specs-table th {
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+    }
+
+    .specs-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .specs-table td.spec-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      width: 30%;
+    }
+
+    .specs-table td.spec-val {
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+    }
+
+    /* CTA / Download Card */
+    .download-card-section {
+      padding: 90px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .cta-box {
+      background: linear-gradient(135deg, #112219 0%, #1A3326 100%);
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-lg);
+      padding: 60px 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .cta-box h2 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .cta-box p {
+      font-size: 1.15rem;
+      color: var(--text-secondary);
+      max-width: 650px;
+      margin: 0 auto 36px;
+    }
+
+    .cta-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 30px;
+    }
+
+    .cta-note {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .alpha-meta-grid {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .alpha-meta-pill {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .alpha-meta-pill strong {
+      color: var(--orange-bright);
+    }
+    .alpha-changelog-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px 28px;
+      max-width: 760px;
+      margin: 0 auto 32px;
+      text-align: left;
+    }
+    .alpha-changelog-card h3 {
+      font-size: 1.15rem;
+      color: var(--orange-bright);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .alpha-changelog-card ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .alpha-changelog-card li {
+      position: relative;
+      padding-left: 24px;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .alpha-changelog-card li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--green-accent);
+      font-weight: bold;
+    }
+    .checksum-box {
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px dashed var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      max-width: 760px;
+      margin: 0 auto 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+    .checksum-box span {
+      color: var(--orange-bright);
+      font-weight: 600;
+    }
+
+    /* Footer */
+    footer {
+      padding: 50px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .footer-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .hero h1 {
+        font-size: 2.6rem;
+      }
+      .feature-row, .feature-row.reverse {
+        grid-template-columns: 1fr;
+        direction: ltr;
+        gap: 36px;
+      }
+      .feature-row.reverse .feature-text {
+        direction: ltr;
+      }
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <div class="container nav-wrap">
+      <div class="logo">
+        <div class="logo-badge">📻</div>
+        <span>Eager to Listen</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#why-developed">Why We Built It</a>
+        <a href="FEATURES.md">Feature List</a>
+        <a href="CHANGELOG.md">Changelog</a>
+        <a href="#specs">Tech Specs</a>
+        <a href="#download" class="btn btn-primary">Download Alpha</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="container hero-content">
+      <div class="badge-pill">
+        <span>⚡ Early Access Alpha 0.5 (Updated Oct 23, 2026 &bull; Build 2)</span>
+      </div>
+      <h1>
+        Curated Like Public Radio.<br>
+        <span class="gradient-orange">Personalized for You.</span>
+      </h1>
+      <p class="lead">
+        Tired of the "Binge Trap" and micromanaging playlists every morning? Meet <strong>Eager to Listen</strong>, featuring the <strong>Curated Airwaves™ Engine (Radio U)</strong>: algorithmic queue automation that blends timely news, serial arcs, and evergreen deep dives into an effortless, balanced commute.
+      </p>
+      <div class="hero-actions">
+        <a href="eagertolisten-v0.5.1-alpha.apk" class="btn btn-primary" download>
+          <span>📲 Download APK (.apk &bull; 24.3 MB)</span>
+        </a>
+        <a href="eagertolisten_website_update_package.zip" class="btn btn-primary" download>
+          <span>📦 Download Package (.zip)</span>
+        </a>
+        <a href="FEATURES.md" class="btn btn-secondary">
+          <span>⚡ Feature List</span>
+        </a>
+        <a href="CHANGELOG.md" class="btn btn-secondary">
+          <span>📝 Changelog</span>
+        </a>
+        <a href="ALPHA_TESTERS.md" class="btn btn-secondary">
+          <span>📖 Tester Guide</span>
+        </a>
+      </div>
+
+      <!-- Hero Phone Showcase -->
+      <div class="hero-showcase">
+        <div class="phone-mockup-wrapper">
+          <img src="screenshots/queue_radio_u.png" alt="Eager to Listen Pending Playlist with Radio U Curated Airwaves" class="phone-screen">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pain Points Addressed: Why This Was Developed -->
+  <section class="pain-points-section" id="why-developed">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">The Philosophy</span>
+        <h2 class="section-title">Why We Developed Eager to Listen</h2>
+        <p class="section-desc">
+          Modern podcast apps stopped innovating a decade ago. They either treat your queue like a dumb linear playlist or dump entire back-catalogs into an exhausting binge. Here are the core pain points we set out to cure.
+        </p>
+      </div>
+
+      <div class="comparison-grid">
+        <!-- 1. The Binge Trap -->
+        <div class="comparison-card">
+          <div class="card-icon">🪤</div>
+          <h3>The "Binge Trap" & Queue Monopolization</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Subscribing to a 50-episode show dumps the entire catalog in front of everything else. You are trapped listening to one host for 3 weeks or forced to spend 15 minutes manually rearranging items.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            Enforces <strong>Anti-Binge Diversity Limits</strong> (1–5 consecutive episodes). The algorithm fairly interleaves your library, providing balanced variety on every commute like a public radio station.
+          </div>
+        </div>
+
+        <!-- 2. Stale News Audio -->
+        <div class="comparison-card">
+          <div class="card-icon">🗞️</div>
+          <h3>Stale Headlines Lingering Forever</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Daily morning news shows stay trapped in your playlist for weeks. You end up hearing expired market summaries or obsolete election updates days after they happened.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            <strong>Rolling News Retention Windows</strong> automatically discard news older than X days. Plus, <strong>Just-In-Time (JIT) Refresh</strong> fetches the freshest feed immediately before playback starts!
+          </div>
+        </div>
+
+        <!-- 3. Serial vs Episodic Chaos -->
+        <div class="comparison-card">
+          <div class="card-icon">🔄</div>
+          <h3>Serial vs. Episodic Order Chaos</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Mainstream players apply one global rule. If you set "newest first", investigative serials and language courses play backward and ruin the plot.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            <strong>4 Autonomous Play Strategies</strong>: Chronological for serials, Reverse-chronological for banter, Rolling Retention for news, and Evergreen for deep dives.
+          </div>
+        </div>
+
+        <!-- 4. Cellular Dropouts While Driving -->
+        <div class="comparison-card">
+          <div class="card-icon">🚗</div>
+          <h3>Commuter Cellular Dropouts & Skips</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Weak cellular coverage or driving through tunnels causes playback to drop, buffer endlessly, or erroneously skip to the next podcast and lose your place.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            <strong>180-Second Deep Buffer & Reconnect Guard</strong>: Holds up to 3 minutes of audio ahead with a 180s back-buffer, allowing 2 track skips with zero network dependency.
+          </div>
+        </div>
+
+        <!-- 5. Podcasting 1.0 Limitations -->
+        <div class="comparison-card">
+          <div class="card-icon">📜</div>
+          <h3>Trapped in Flat "Podcasting 1.0" Audio</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Standard apps treat podcasts as dumb MP3 files: no clickable transcripts, no chapter art, no live stream detection, and no direct creator funding.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            <strong>Full Podcasting 2.0 Engine</strong>: Interactive word-highlighted transcripts with tap-to-seek, rich chapters with artwork, live broadcast feeds, and Lightning satoshi Boostagrams.
+          </div>
+        </div>
+
+        <!-- 6. Surveillance & Account Lock-In -->
+        <div class="comparison-card">
+          <div class="card-icon">🔒</div>
+          <h3>Proprietary Server Surveillance</h3>
+          <div class="pain-box">
+            <strong>The Pain Point</strong>
+            Apps force you to create proprietary accounts so they can track your listening habits, inject targeted ads, and sell behavioral telemetry.
+          </div>
+          <div class="solution-box">
+            <strong>Curated Airwaves (Radio U) Solution</strong>
+            <strong>Zero-Server Privacy</strong>: Syncs your queue, preferences, and subscriptions directly using your private Google Drive AppData folder. No tracking, no middleman server.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Visual Feature Showcase -->
+  <section class="showcase-section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Visual Walkthrough</span>
+        <h2 class="section-title">Built with Precision on Physical Hardware</h2>
+        <p class="section-desc">
+          Live screenshots captured on Google Pixel 10 (Android 15) demonstrating real-world features.
+        </p>
+      </div>
+
+      <!-- Feature 1: The Programmed Playlist & Sort Menu -->
+      <div class="feature-row">
+        <div class="feature-text">
+          <div class="badge-pill" style="margin-bottom: 12px;">Pillar 1</div>
+          <h3>Curated Airwaves (Radio U): NPR-Style Programmed Flow</h3>
+          <p>
+            Your queue is no longer a dumb linear stack. The Curated Airwaves engine automatically schedules episodes with order numbers (<code>#1 NEXT</code>, <code>#2</code>, <code>#3</code>) and strategy badges (<code>Serial</code>, <code>Evergreen</code>, <code>News</code>).
+          </p>
+          <ul class="feature-bullets">
+            <li><span class="check">✓</span> <strong>Fair Interleaving:</strong> Enforces consecutive episode limits so shows rotate fairly.</li>
+            <li><span class="check">✓</span> <strong>Hot List:</strong> One-tap access to all unplayed episodes from Priority 1 shows.</li>
+            <li><span class="check">✓</span> <strong>Single-Episode "Play Next":</strong> Bump breaking stories to #1 without breaking your programmed schedule.</li>
+          </ul>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/radio_u_sort_menu.png" alt="Queue sorting menu showing Curated Airwaves: Radio U">
+          <div class="screen-caption">Queue Screen: Curated Airwaves (Radio U) Sort Menu</div>
+        </div>
+      </div>
+
+      <!-- Feature 2: Anti-Binge Rules & Background Automation -->
+      <div class="feature-row reverse">
+        <div class="feature-text">
+          <div class="badge-pill" style="margin-bottom: 12px;">Pillar 2</div>
+          <h3>Fine-Grained Anti-Binge Rules & Automation</h3>
+          <p>
+            Full control over how your personal radio station behaves. Adjust consecutive episode caps, rolling news retention windows, scheduled updates, and offline pre-downloading.
+          </p>
+          <ul class="feature-bullets">
+            <li><span class="check">✓</span> <strong>Adjustable Consecutive Limits:</strong> Set caps from 1 to 5 episodes per feed.</li>
+            <li><span class="check">✓</span> <strong>12-Hour Automated Updates & Local Backup:</strong> Auto-syncs feeds, purges expired news, and backs up DB snapshots.</li>
+            <li><span class="check">✓</span> <strong>4-Hour Queue Pre-Download:</strong> Automatically caches upcoming queue audio while strictly skipping news to guarantee freshness.</li>
+          </ul>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/anti_binge_settings.png" alt="Settings screen showing Anti-Binge sliders and Scheduled Updates">
+          <div class="screen-caption">Settings: Anti-Binge Sliders & 12h Automated Backup</div>
+        </div>
+      </div>
+
+      <!-- Feature 3: Creator Inspiration Studio -->
+      <div class="feature-row" id="creator-studio">
+        <div class="feature-text">
+          <div class="badge-pill" style="margin-bottom: 12px;">Pillar 3</div>
+          <h3>Creator Inspiration Studio: Capture Ideas While Driving</h3>
+          <p>
+            Are you a content creator, writer, or podcaster? When an episode sparks inspiration during your commute, tap the <strong>"Save Inspiration"</strong> button directly from Android Auto or the player sheet.
+          </p>
+          <ul class="feature-bullets">
+            <li><span class="check">✓</span> <strong>Timestamp Bookmarking:</strong> Instantly saves the exact audio second.</li>
+            <li><span class="check">✓</span> <strong>Draft Blog & Newsletter Notes:</strong> Attach quick thoughts, brainstorms, or citations.</li>
+            <li><span class="check">✓</span> <strong>Markdown Quotes & Best-Of OPML:</strong> One-tap copy quote formatting and export curated feeds for your followers.</li>
+          </ul>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/creator_studio.png" alt="Creator Inspiration Studio showing bookmarked clips and blog notes">
+          <div class="screen-caption">Inspiration Studio: Audio Clip Bookmarks & Export</div>
+        </div>
+      </div>
+
+      <!-- Feature 4: Podcasting 2.0 Superpowers -->
+      <div class="feature-row reverse" id="podcasting-20">
+        <div class="feature-text">
+          <div class="badge-pill" style="margin-bottom: 12px;">Pillar 4</div>
+          <h3>Native Podcasting 2.0 & Value-for-Value</h3>
+          <p>
+            Built from day one to support the open Podcasting 2.0 specification. Experience synchronized interactive transcripts, rich chapters with artwork, live broadcasts, and direct Lightning satoshi support.
+          </p>
+          <ul class="feature-bullets">
+            <li><span class="check">✓</span> <strong>Synchronized Transcripts:</strong> Word-highlighted text with tap-to-seek.</li>
+            <li><span class="check">✓</span> <strong>Live Streams (<code>&lt;podcast:liveItem&gt;</code>):</strong> One-tap live stream tuning with 90-min inactivity fallback.</li>
+            <li><span class="check">✓</span> <strong>Lightning Boostagrams:</strong> Send satoshi tips with custom split recipients and quick-tip chips.</li>
+          </ul>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/podcasting20_v4v.png" alt="Podcasting 2.0 Value for Value Boostagram Modal">
+          <div class="screen-caption">Podcasting 2.0: Lightning V4V Boostagrams & Recipient Splits</div>
+        </div>
+      </div>
+
+      <!-- Feature 5: Discovery & In-App Alpha Support -->
+      <div class="feature-row">
+        <div class="feature-text">
+          <div class="badge-pill" style="margin-bottom: 12px;">Pillar 5</div>
+          <h3>Promoted Discovery & Direct Developer Support</h3>
+          <p>
+            Category discovery powered by PodcastIndex.org with promoted shows: <strong>No Agenda Show</strong> pinned #1 for News & Current Events, and <strong>Eager to be Healthy</strong> pinned #1 for Health & Self-Help.
+          </p>
+          <ul class="feature-bullets">
+            <li><span class="check">✓</span> <strong>Direct Developer Support:</strong> One-tap "Send Alpha Feedback" button opens your email pre-filled with device and OS info.</li>
+            <li><span class="check">✓</span> <strong>Podcast Addict Migration:</strong> One-tap import of your existing <code>.backup</code>, <code>.db</code>, or OPML files.</li>
+          </ul>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/engine_features.png" alt="Settings screen showing Curated Airwaves Engine and Alpha Support card">
+          <div class="screen-caption">Settings: Engine Features & Direct Alpha Feedback Card</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Technical Specifications Table -->
+  <section class="specs-section" id="specs">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Specifications</span>
+        <h2 class="section-title">Technical Architecture & Compatibility</h2>
+        <p class="section-desc">
+          Engineered for performance, battery efficiency, and zero proprietary lock-in.
+        </p>
+      </div>
+
+      <table class="specs-table">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Specification</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="spec-name">Supported Android Versions</td>
+            <td class="spec-val">Android 8.0 (API 26) through Android 15 (API 35)</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Audio Engine</td>
+            <td class="spec-val">AndroidX Media3 ExoPlayer (v1.5.1) + MediaLibraryService</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Buffer Architecture</td>
+            <td class="spec-val">180s Max Audio Buffer + 180s Retained Back-Buffer (2 skips offline)</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Database Architecture</td>
+            <td class="spec-val">Room SQLite Schema v5 with reactive Kotlin Flow & Foreign Keys</td>
+          </tr>
+          <tr>
+            <td class="spec-name">User Interface</td>
+            <td class="spec-val">100% Jetpack Compose with Edge-to-Edge display (Forest Green / Burnt Orange)</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Automotive Integration</td>
+            <td class="spec-val">Android Auto MediaBrowser (Pending, Hot List, Daily News, Podcasts)</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Podcasting 2.0 Compliance</td>
+            <td class="spec-val">&lt;podcast:transcript&gt;, &lt;podcast:chapters&gt;, &lt;podcast:liveItem&gt;, &lt;podcast:value&gt;, &lt;podcast:funding&gt;, &lt;podcast:person&gt;</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Cloud Sync Protocol</td>
+            <td class="spec-val">Zero-Server Google Drive AppData Sync via Storage Access Framework (SAF)</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Migration & Import</td>
+            <td class="spec-val">Podcast Addict (.backup / .db), OPML 2.0, RSS Direct URL</td>
+          </tr>
+          <tr>
+            <td class="spec-name">Companion Web App</td>
+            <td class="spec-val">Progressive Web App (PWA) with responsive mobile/desktop player</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Download & Alpha Testing CTA -->
+  <section class="download-card-section" id="download">
+    <div class="container">
+      <div class="cta-box">
+        <span class="badge-pill" style="margin-bottom: 16px;">Early Access Alpha 0.5 &bull; Build 2 (2026.10.23)</span>
+        <h2>Test-Drive Eager to Listen Alpha 0.5</h2>
+        <p>
+          Experience intelligent broadcast-style audio scheduling, Podcasting 2.0 interactive transcripts, deep 180s buffering, and full Android Auto integration.
+        </p>
+
+        <!-- Alpha Metadata Pills -->
+        <div class="alpha-meta-grid">
+          <div class="alpha-meta-pill">Version: <strong>v0.5.1-alpha (Build 2)</strong></div>
+          <div class="alpha-meta-pill">Size: <strong>24.3 MB</strong></div>
+          <div class="alpha-meta-pill">Target OS: <strong>Android 16 (API 36)</strong></div>
+          <div class="alpha-meta-pill">Min OS: <strong>Android 8.0+ (API 26+)</strong></div>
+          <div class="alpha-meta-pill">Arch: <strong>arm64-v8a, armeabi-v7a, x86_64</strong></div>
+          <div class="alpha-meta-pill">Target Devices: <strong>Pixel, Samsung Galaxy, Motorola</strong></div>
+        </div>
+
+        <!-- What's New in This Build -->
+        <div class="alpha-changelog-card">
+          <h3><span>⚡</span> What's New in Alpha 0.5 Update</h3>
+          <ul>
+            <li><strong>Refined Steering Wheel & In-Car Controls:</strong> Next Track (<code>&gt;&gt;|</code>) and Previous Track (<code>|&lt;&lt;</code>) properly advance and rewind between episodes in your playlist queue, while dedicated Fast Forward (+90s) and Rewind (-15s) scrub inside the track.</li>
+            <li><strong>Android Auto 3–5 Track Queue:</strong> Head-unit queue display now shows the currently playing episode plus 3 to 5 upcoming tracks from your Pending Playlist so you can see ahead and select upcoming shows.</li>
+            <li><strong>Offline Download Indicators & Quick Actions:</strong> Visual <code>💾</code> indicators across Android Auto, Queue, Subscriptions, MiniPlayer, and Player Sheet with one-tap download action buttons on episode cards.</li>
+            <li><strong>Android 16 & KSP2 Optimization:</strong> Modernized build pipeline with KSP2 and Room 2.7.2 for peak responsiveness and battery life.</li>
+          </ul>
+        </div>
+
+        <div class="cta-buttons">
+          <a href="eagertolisten-v0.5.1-alpha.apk" class="btn btn-primary" download>
+            <span>📲 Download Android APK (.apk &bull; 24.3 MB)</span>
+          </a>
+          <a href="eagertolisten_website_update_package.zip" class="btn btn-primary" download>
+            <span>📦 Download APK Package (.zip)</span>
+          </a>
+          <a href="FEATURES.md" class="btn btn-secondary">
+            <span>⚡ Feature List (FEATURES.md)</span>
+          </a>
+          <a href="CHANGELOG.md" class="btn btn-secondary">
+            <span>📝 Changelog (CHANGELOG.md)</span>
+          </a>
+          <a href="ALPHA_TESTERS.md" class="btn btn-secondary">
+            <span>📋 Tester Guide</span>
+          </a>
+          <a href="mailto:michael.eger@michaelegerconsulting.com?subject=Eager%20to%20Listen%20Alpha%20Feedback" class="btn btn-secondary">
+            <span>✉️ Send Feedback</span>
+          </a>
+        </div>
+
+        <!-- Checksum Verification Box -->
+        <div class="checksum-box">
+          <span>SHA-256 CHECKSUM:</span> 0F17E3A775D411B78D52826DC234449027CEB44DF8698EEABA576DF10D9FC05B
+        </div>
+
+        <p class="cta-note">
+          Developer Contact: <strong>michael.eger@michaelegerconsulting.com</strong> &bull; Eager to Listen &copy; 2026
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container footer-wrap">
+      <div>
+        <strong>Eager to Listen</strong> &bull; Curated Airwaves (Radio U)
+      </div>
+      <div>
+        Built with ❤️ for the open Podcasting 2.0 ecosystem.
+      </div>
+      <div>
+        <a href="mailto:michael.eger@michaelegerconsulting.com">michael.eger@michaelegerconsulting.com</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

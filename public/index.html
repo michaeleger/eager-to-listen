@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eager to Listen - Podcast Player</title>
+  
+  <!-- Premium Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- SQL.js (WebAssembly SQLite) for Podcast Addict migrations -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"></script>
+  
+  <!-- Google Identity Services for Google Drive AppData Sync -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Header Bar -->
+    <header class="app-header">
+      <div class="header-logo">
+        <i data-lucide="headphones" class="logo-icon"></i>
+        <h1>Eager<span>to Listen</span></h1>
+      </div>
+      <div class="header-actions">
+        <button id="quick-refresh-btn" title="Refresh all feeds">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area (Tabs) -->
+    <main class="app-content">
+      
+      <!-- TAB 1: QUEUE -->
+      <section id="tab-queue" class="tab-panel active">
+        <div class="section-header">
+          <h2>Play Queue</h2>
+          <div class="queue-controls">
+            <label for="queue-sort-select">Sort:</label>
+            <select id="queue-sort-select" class="custom-select">
+              <option value="priority-date-oldest">Priority, then Date (Oldest First)</option>
+              <option value="priority-date-newest">Priority, then Date (Newest First)</option>
+              <option value="date-oldest">Date (Oldest First)</option>
+              <option value="date-newest">Date (Newest First)</option>
+              <option value="manual">Manual (Drag & Reorder)</option>
+            </select>
+            <button id="clear-queue-btn" class="icon-btn danger" title="Clear Queue">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="queue-empty-state" class="empty-state">
+          <i data-lucide="list-music" class="empty-icon"></i>
+          <p>Your play queue is empty.</p>
+          <p class="subtitle">Go to Subscriptions or Discover to add episodes.</p>
+        </div>
+
+        <div id="queue-list" class="queue-list">
+          <!-- Queue items rendered dynamically -->
+        </div>
+      </section>
+
+      <!-- TAB 2: SUBSCRIPTIONS -->
+      <section id="tab-subscriptions" class="tab-panel">
+        <div class="section-header">
+          <h2>My Subscriptions</h2>
+        </div>
+
+        <div id="subs-empty-state" class="empty-state">
+          <i data-lucide="rss" class="empty-icon"></i>
+          <p>You aren't subscribed to any podcasts yet.</p>
+          <p class="subtitle">Subscribe to our sample feed, or search in the Discover tab.</p>
+          <button id="subscribe-sample-btn" class="btn btn-primary">
+            <i data-lucide="plus"></i> Subscribe to Sample Feed
+          </button>
+        </div>
+
+        <div id="subscriptions-grid" class="subscriptions-grid">
+          <!-- Subscriptions rendered dynamically -->
+        </div>
+
+        <!-- Single Podcast Detail Overlay View -->
+        <div id="podcast-detail-view" class="detail-view hidden">
+          <div class="detail-header">
+            <button id="close-detail-btn" class="icon-btn">
+              <i data-lucide="arrow-left"></i>
+            </button>
+            <h3 id="detail-podcast-title">Podcast Title</h3>
+            <button id="podcast-settings-btn" class="icon-btn" title="Podcast Settings">
+              <i data-lucide="sliders"></i>
+            </button>
+          </div>
+          <div class="detail-meta">
+            <img id="detail-podcast-image" src="" alt="Podcast Art">
+            <div class="detail-meta-text">
+              <p id="detail-podcast-author" class="author">Author</p>
+              <p id="detail-podcast-desc" class="description">Description goes here...</p>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px;">
+                <button id="unsubscribe-btn" class="btn btn-outline-danger btn-sm">Unsubscribe</button>
+                <a id="detail-support-btn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm hidden" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                  <i data-lucide="heart" style="width: 12px; height: 12px;"></i> Support
+                </a>
+                <button id="detail-boost-btn" class="btn btn-primary btn-sm hidden" style="font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; background-color: var(--color-burnt-orange); border-color: var(--color-burnt-orange); display: inline-flex; align-items: center; gap: 4px;">
+                  <i data-lucide="zap" style="width: 12px; height: 12px;"></i> Boost
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="episode-list-container">
+            <h4>Episodes</h4>
+            <div id="detail-episode-list" class="episode-list">
+              <!-- Episodes rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: DISCOVER -->
+      <section id="tab-discover" class="tab-panel">
+        <div class="section-header">
+          <h2>Discover</h2>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-box">
+          <i data-lucide="search" class="search-icon"></i>
+          <input type="text" id="search-input" placeholder="Search podcast name, author, or keywords...">
+          <button id="search-btn" class="btn btn-primary">Search</button>
+        </div>
+
+        <!-- Manual URL Add -->
+        <div class="rss-manual-add">
+          <input type="text" id="manual-rss-input" placeholder="Or enter RSS Feed URL manually...">
+          <button id="manual-rss-btn" class="btn btn-outline">Add RSS</button>
+        </div>
+
+        <!-- Curated / Recommendations -->
+        <div class="discover-section">
+          <h3>Curated &amp; Samples</h3>
+          <div class="curated-list">
+            <div class="curated-item">
+              <img src="https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=150&h=150&fit=crop" alt="Eager to be healthy">
+              <div class="curated-details">
+                <h4>Eager to be Healthy Podcast</h4>
+                <p>Sample feed featuring full interactive transcript sync!</p>
+                <button class="btn btn-sm btn-primary subscribe-curated-btn" data-url="/sample-feed.xml">Subscribe</button>
+              </div>
+            </div>
+            <div class="curated-item">
+              <img src="https://images.unsplash.com/photo-1610116306796-6ebd30d779c6?q=80&w=150&h=150&fit=crop" alt="Syntax FM">
+              <div class="curated-details">
+                <h4>Syntax - Tasty Web Development</h4>
+                <p>Popular web development podcast by Wes Bos &amp; Scott Tolinski.</p>
+                <button class="btn btn-sm btn-primary subscribe-curated-btn" data-url="https://feed.syntax.fm/">Subscribe</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Results Grid -->
+        <div class="discover-section hidden" id="search-results-section">
+          <h3>Search Results</h3>
+          <div id="search-results-grid" class="search-results-grid">
+            <!-- Search results rendered dynamically -->
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: SETTINGS -->
+      <section id="tab-settings" class="tab-panel">
+        <div class="section-header">
+          <h2>Settings</h2>
+        </div>
+
+        <!-- Global Queue Settings -->
+        <div class="settings-card">
+          <h3><i data-lucide="list-music"></i> Global Queue Behavior</h3>
+          <div class="settings-row">
+            <label for="setting-auto-play-next">Auto-play next episode</label>
+            <input type="checkbox" id="setting-auto-play-next" class="custom-checkbox" checked>
+          </div>
+          <div class="settings-row">
+            <label for="setting-auto-remove">Auto-remove played episodes from queue</label>
+            <input type="checkbox" id="setting-auto-remove" class="custom-checkbox" checked>
+          </div>
+        </div>
+
+        <!-- Google Drive Cloud Sync -->
+        <div class="settings-card">
+          <h3><i data-lucide="cloud"></i> Google Drive Cloud Sync</h3>
+          <p class="settings-hint">Synchronize subscriptions, podcast priorities, playback progress, and queue between PC and Android using Google Drive AppData.</p>
+          
+          <div class="sync-status-box" id="drive-sync-status-box">
+            <div class="sync-status-indicator">
+              <span class="status-dot" id="drive-status-dot"></span>
+              <span id="drive-status-text">Not Connected</span>
+            </div>
+            <span class="sync-last-time" id="drive-last-synced-text">Never synced</span>
+          </div>
+
+          <div class="sync-actions-row" id="drive-unauthenticated-actions">
+            <button id="drive-login-btn" class="btn btn-primary btn-block">
+              <i data-lucide="log-in"></i> Connect Google Drive
+            </button>
+          </div>
+
+          <div class="sync-actions-row hidden" id="drive-authenticated-actions">
+            <button id="drive-sync-now-btn" class="btn btn-primary" style="flex: 1;">
+              <i data-lucide="refresh-cw"></i> Sync Now
+            </button>
+            <button id="drive-logout-btn" class="btn btn-outline-danger">
+              <i data-lucide="log-out"></i> Disconnect
+            </button>
+          </div>
+
+          <div class="oauth-config-toggle">
+            <details>
+              <summary>OAuth Configuration (Client ID)</summary>
+              <div class="oauth-config-content">
+                <p class="settings-hint" style="margin-top: 8px;">Enter your Google OAuth 2.0 Web Client ID (configured in Google Cloud Console with drive.appdata scope):</p>
+                <div class="settings-form-row">
+                  <input type="text" id="drive-client-id-input" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com" class="custom-text-input">
+                </div>
+                <button id="save-drive-client-id-btn" class="btn btn-outline btn-sm">Save Client ID</button>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <!-- Podcast Addict Migration -->
+        <div class="settings-card">
+          <h3><i data-lucide="import"></i> Migration / Imports</h3>
+          <div class="migration-block">
+            <h4>Import Subscriptions (OPML)</h4>
+            <p class="settings-hint">Select a standard `.opml` export file to subscribe to all feeds.</p>
+            <label class="file-upload-btn btn btn-outline btn-block">
+              <i data-lucide="file-code"></i> Choose OPML File
+              <input type="file" id="import-opml-input" accept=".opml,.xml" class="hidden-file-input">
+            </label>
+          </div>
+          
+          <div class="migration-block" style="margin-top: 20px;">
+            <h4>Import Podcast Addict Progress Backup</h4>
+            <p class="settings-hint">Import feeds and playback progress from Podcast Addict. Select your raw `podcastAddict.db` file.</p>
+            <div class="alert alert-info">
+              <i data-lucide="info"></i>
+              <span><strong>Note:</strong> Podcast Addict exports a zipped `.backup` file. Rename your `.backup` file to `.zip`, extract it, and select the `podcastAddict.db` file inside.</span>
+            </div>
+            <label class="file-upload-btn btn btn-outline btn-block">
+              <i data-lucide="database"></i> Choose podcastAddict.db
+              <input type="file" id="import-db-input" accept=".db,.sqlite,.backup" class="hidden-file-input">
+            </label>
+          </div>
+        </div>
+
+        <!-- Diagnostics & Testing -->
+        <div class="settings-card">
+          <h3><i data-lucide="binary"></i> System Diagnostics</h3>
+          <p class="settings-hint">Verify queue sorting, rules, and transcript parser via client unit tests.</p>
+          <button id="run-tests-btn" class="btn btn-secondary btn-block">
+            <i data-lucide="check-square"></i> Run Unit Tests
+          </button>
+          <div id="test-results-container" class="test-results hidden">
+            <!-- Test results render here -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="app-nav">
+      <button class="nav-item active" data-tab="tab-queue">
+        <i data-lucide="list-music"></i>
+        <span>Queue</span>
+      </button>
+      <button class="nav-item" data-tab="tab-subscriptions">
+        <i data-lucide="rss"></i>
+        <span>My Feeds</span>
+      </button>
+      <button class="nav-item" data-tab="tab-discover">
+        <i data-lucide="compass"></i>
+        <span>Discover</span>
+      </button>
+      <button class="nav-item" data-tab="tab-settings">
+        <i data-lucide="settings"></i>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Bottom Mini-Player Bar (Always visible if media selected) -->
+    <div id="mini-player" class="mini-player hidden">
+      <div class="mini-progress-bar">
+        <div id="mini-progress-fill" class="mini-progress-fill" style="width: 0%"></div>
+      </div>
+      <div class="mini-player-content" id="mini-player-expand-trigger">
+        <img id="mini-player-cover" src="https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=100&h=100&fit=crop" alt="Cover Art">
+        <div class="mini-player-info">
+          <div id="mini-player-title" class="title">No Episode Loaded</div>
+          <div id="mini-player-podcast" class="podcast">Select an episode to play</div>
+        </div>
+      </div>
+      <div class="mini-player-actions">
+        <button id="mini-play-btn" class="icon-btn play-pause-btn">
+          <i data-lucide="play"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Fullscreen Player & Transcript Panel Overlay -->
+    <div id="full-player-overlay" class="full-player-overlay hidden">
+      <header class="player-overlay-header">
+        <button id="close-player-btn" class="icon-btn">
+          <i data-lucide="chevron-down"></i>
+        </button>
+        <span class="now-playing-label">Now Playing</span>
+        <div class="player-view-mode-buttons" style="display: flex; gap: 6px;">
+          <button id="player-view-cover-btn" class="icon-btn active" title="Cover Art">
+            <i data-lucide="image"></i>
+          </button>
+          <button id="player-view-notes-btn" class="icon-btn" title="Episode Notes & Description">
+            <i data-lucide="book-open"></i>
+          </button>
+          <button id="player-view-transcript-btn" class="icon-btn" title="Transcript (CC)">
+            <i data-lucide="file-text"></i>
+          </button>
+        </div>
+      </header>
+
+      <div class="player-overlay-body">
+        <!-- MODE 1: Album Cover View -->
+        <div id="player-cover-view" class="player-view-pane active">
+          <div class="cover-art-container">
+            <img id="player-cover-art" src="https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&w=400&h=400&fit=crop" alt="Cover Art">
+          </div>
+          <div class="episode-metadata">
+            <h2 id="player-episode-title">Episode Title</h2>
+            <h3 id="player-podcast-title">Podcast Name</h3>
+            <span id="player-live-badge" class="badge badge-danger hidden" style="margin-top: 6px;">● LIVE STREAM</span>
+            <div id="player-donation-actions" class="player-donation-actions" style="margin-top: 10px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+              <a id="player-support-btn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline hidden" style="font-size: 0.8rem; padding: 4px 12px; border-radius: 16px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                <i data-lucide="heart" style="width: 14px; height: 14px;"></i> Support Show
+              </a>
+              <button id="player-boost-btn" class="btn btn-primary hidden" style="font-size: 0.8rem; padding: 4px 12px; border-radius: 16px; background-color: var(--color-burnt-orange); border-color: var(--color-burnt-orange); display: inline-flex; align-items: center; gap: 4px;">
+                <i data-lucide="zap" style="width: 14px; height: 14px;"></i> Boost
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MODE 2: Notes / RSS Description View -->
+        <div id="player-notes-view" class="player-view-pane">
+          <div class="notes-header" style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <h3 style="margin: 0;">Episode Notes &amp; Summary</h3>
+            <div id="player-notes-donation-actions" class="player-donation-actions" style="display: flex; gap: 8px;">
+              <a id="notes-support-btn" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-outline hidden" style="font-size: 0.78rem; padding: 3px 10px; border-radius: 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                <i data-lucide="heart" style="width: 13px; height: 13px;"></i> Support Show
+              </a>
+              <button id="notes-boost-btn" class="btn btn-primary hidden" style="font-size: 0.78rem; padding: 3px 10px; border-radius: 14px; background-color: var(--color-burnt-orange); border-color: var(--color-burnt-orange); display: inline-flex; align-items: center; gap: 4px;">
+                <i data-lucide="zap" style="width: 13px; height: 13px;"></i> Boost
+              </button>
+            </div>
+          </div>
+          <div id="player-notes-content" class="notes-content-area" style="overflow-y: auto; flex: 1; padding: 12px; color: var(--text-secondary); line-height: 1.6; font-size: 0.9rem; user-select: text;">
+            <!-- RSS description & chapters rendered here -->
+          </div>
+        </div>
+
+        <!-- MODE 3: Transcript View -->
+        <div id="player-transcript-view" class="player-view-pane">
+          <div class="transcript-header">
+            <h3>Episode Transcript</h3>
+            <div class="transcript-controls">
+              <input type="text" id="transcript-search" placeholder="Search transcript...">
+              <label class="auto-scroll-label">
+                <input type="checkbox" id="transcript-auto-scroll" checked> Auto-Scroll
+              </label>
+            </div>
+          </div>
+          <div id="transcript-content" class="transcript-content-area">
+            <div class="transcript-empty-state">
+              <i data-lucide="file-warning" class="empty-icon"></i>
+              <p>No transcript available for this episode.</p>
+              <p class="subtitle">Podcast 2.0 transcript tags were not found in this feed.</p>
+            </div>
+            <!-- Transcripts lines rendered here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls Panel (Shared across cover & transcript view) -->
+      <footer class="player-controls-footer">
+        
+        <!-- Speed & Audio Info Bar -->
+        <div class="playback-speed-controls">
+          <label for="playback-speed-slider">Speed: <span id="speed-display">1.0x</span></label>
+          <input type="range" id="playback-speed-slider" min="0.5" max="3.0" step="0.1" value="1.0" class="speed-slider">
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="scrub-container">
+          <span id="player-time-elapsed" class="time-label">0:00</span>
+          <div class="progress-bar-wrapper">
+            <input type="range" id="player-progress-slider" min="0" max="100" value="0" class="scrub-bar">
+          </div>
+          <span id="player-time-remaining" class="time-label">-0:00</span>
+        </div>
+
+        <!-- Primary Controls: 15s Rewind, Play/Pause, 90s Skip -->
+        <div class="player-buttons">
+          <button id="player-skip-back-btn" class="icon-btn secondary skip-btn" title="Rewind 15s">
+            <i data-lucide="rotate-ccw"></i>
+            <span class="skip-sec">15</span>
+          </button>
+          <button id="player-play-btn" class="player-main-play play-pause-btn" title="Play">
+            <i data-lucide="play" class="play-icon-large"></i>
+          </button>
+          <button id="player-skip-forward-btn" class="icon-btn secondary skip-btn" title="Skip Forward 90s">
+            <i data-lucide="rotate-cw"></i>
+            <span class="skip-sec">90</span>
+          </button>
+        </div>
+
+        <!-- Volume Controller -->
+        <div class="volume-container">
+          <i data-lucide="volume-1" class="volume-icon"></i>
+          <input type="range" id="player-volume-slider" min="0" max="1" step="0.05" value="1" class="volume-slider">
+          <i data-lucide="volume-2" class="volume-icon"></i>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Per-Podcast Settings Dialog Modal -->
+    <div id="podcast-settings-modal" class="modal hidden">
+      <div class="modal-content">
+        <header class="modal-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h3>Feed Settings</h3>
+            <span class="badge badge-success" id="settings-auto-saved-badge" style="font-size: 0.72rem; padding: 2px 6px;">✓ Auto-saving</span>
+          </div>
+          <button id="close-modal-btn" class="icon-btn"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <h4 id="settings-modal-podcast-title">Podcast Name</h4>
+          
+          <div class="settings-form-row">
+            <label for="podcast-priority-select">Podcast Priority:</label>
+            <select id="podcast-priority-select" class="custom-select">
+              <option value="1">1 (Highest Priority)</option>
+              <option value="2">2 (High)</option>
+              <option value="3">3 (Medium)</option>
+              <option value="4">4 (Low)</option>
+              <option value="5">5 (Lowest Priority)</option>
+            </select>
+            <p class="form-hint">Episodes of higher priority podcasts will sort to the top of your queue.</p>
+          </div>
+
+          <div class="settings-form-row">
+            <label for="podcast-limit-select">Keep in Queue:</label>
+            <select id="podcast-limit-select" class="custom-select">
+              <option value="1">1 Latest Episode</option>
+              <option value="2">2 Latest Episodes</option>
+              <option value="3">3 Latest Episodes</option>
+              <option value="5">5 Latest Episodes</option>
+              <option value="unlimited">Unlimited</option>
+            </select>
+            <p class="form-hint">Limits the number of episodes from this podcast allowed in the queue at once.</p>
+          </div>
+
+          <div class="settings-form-row settings-row">
+            <label for="podcast-autoadd-checkbox">Auto-add new episodes to queue</label>
+            <input type="checkbox" id="podcast-autoadd-checkbox" class="custom-checkbox" checked>
+          </div>
+
+          <div class="settings-form-row">
+            <label for="podcast-custom-donation-input">Custom Donation / Support URL:</label>
+            <input type="url" id="podcast-custom-donation-input" class="custom-input" placeholder="https://buymeacoffee.com/... or https://paypal.me/..." style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem;">
+            <p class="form-hint">Direct creator support link (PayPal, Stripe, BuyMeACoffee, Patreon) for feeds without RSS tags.</p>
+          </div>
+        </div>
+        <footer class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Settings save automatically</span>
+          <button id="save-podcast-settings-btn" class="btn btn-primary">Done</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Hidden Native Audio Element -->
+    <audio id="native-audio-player" class="hidden"></audio>
+
+    <!-- Podcasting 2.0 Lightning V4V Boost Modal -->
+    <div id="boost-modal" class="modal hidden">
+      <div class="modal-content" style="max-width: 440px;">
+        <header class="modal-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i data-lucide="zap" style="color: var(--color-burnt-orange); width: 20px; height: 20px;"></i>
+            <h3 style="margin: 0;">Send Boostagram (V4V)</h3>
+          </div>
+          <button id="close-boost-modal-btn" class="icon-btn"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body" style="padding: 16px;">
+          <div style="margin-bottom: 12px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+            <h4 id="boost-modal-podcast-title" style="color: var(--color-burnt-orange); margin: 0 0 4px 0; font-size: 0.95rem;">Podcast</h4>
+            <p id="boost-modal-episode-title" style="color: var(--text-secondary); font-size: 0.82rem; margin: 0;">Episode</p>
+          </div>
+
+          <!-- Quick Sats Chips -->
+          <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 6px; color: var(--text-primary);">Select Amount (Satoshis):</label>
+          <div class="boost-chips" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;">
+            <button type="button" class="boost-chip-btn btn btn-outline" data-sats="500" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px;">500</button>
+            <button type="button" class="boost-chip-btn btn btn-outline active" data-sats="1000" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px; background: var(--color-burnt-orange); color: #fff; border-color: var(--color-burnt-orange);">1,000</button>
+            <button type="button" class="boost-chip-btn btn btn-outline" data-sats="2100" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px;">2,100</button>
+            <button type="button" class="boost-chip-btn btn btn-outline" data-sats="5000" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px;">5,000</button>
+            <button type="button" class="boost-chip-btn btn btn-outline" data-sats="10000" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px;">10,000</button>
+            <button type="button" class="boost-chip-btn btn btn-outline" data-sats="25000" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 14px;">25,000</button>
+          </div>
+
+          <!-- Custom Sats -->
+          <div class="settings-form-row" style="margin-bottom: 10px;">
+            <label for="boost-amount-input">Amount (Sats):</label>
+            <input type="number" id="boost-amount-input" class="custom-input" value="1000" min="1" style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem;">
+          </div>
+
+          <!-- Boostagram Message -->
+          <div class="settings-form-row" style="margin-bottom: 10px;">
+            <label for="boost-message-input">Boostagram Message (optional):</label>
+            <textarea id="boost-message-input" class="custom-input" rows="2" placeholder="Great episode! Thanks for making this." style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem; resize: vertical;"></textarea>
+          </div>
+
+          <!-- Sender Name -->
+          <div class="settings-form-row" style="margin-bottom: 10px;">
+            <label for="boost-sender-input">Your Name (optional):</label>
+            <input type="text" id="boost-sender-input" class="custom-input" placeholder="Anonymous" style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem;">
+          </div>
+
+          <!-- Recipients Breakdown -->
+          <div id="boost-recipients-breakdown" style="background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 0.8rem; max-height: 120px; overflow-y: auto;">
+            <!-- Recipient list injected here -->
+          </div>
+        </div>
+        <footer class="modal-footer" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px;">
+          <button id="copy-boost-details-btn" class="btn btn-outline" style="font-size: 0.85rem;">📋 Copy Details</button>
+          <button id="send-boost-btn" class="btn btn-primary" style="background-color: var(--color-burnt-orange); border-color: var(--color-burnt-orange); font-size: 0.85rem;">⚡ Send Boost</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- One-Handed Bottom Sheet Confirmation Modal -->
+    <div id="confirm-sheet-modal" class="bottom-sheet-overlay hidden">
+      <div class="bottom-sheet-content">
+        <div class="bottom-sheet-drag-handle"></div>
+        <div class="bottom-sheet-header">
+          <div id="confirm-sheet-icon" class="bottom-sheet-icon">
+            <i data-lucide="help-circle"></i>
+          </div>
+          <div>
+            <h4 id="confirm-sheet-title">Are you sure?</h4>
+            <p id="confirm-sheet-message">Please confirm your action.</p>
+          </div>
+        </div>
+        <div class="bottom-sheet-actions">
+          <button id="confirm-sheet-cancel-btn" class="btn btn-outline btn-lg">Cancel</button>
+          <button id="confirm-sheet-accept-btn" class="btn btn-primary btn-lg">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Main JavaScript Controller -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

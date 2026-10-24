@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Google Assistant & Gemini Built-In Intent for Playing Podcasts -->
+    <capability android:name="actions.intent.PLAY_PODCAST">
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.eagertolisten.app"
+            android:targetClass="com.eagertolisten.app.MainActivity">
+            <parameter
+                android:name="podcast.name"
+                android:key="query" />
+        </intent>
+    </capability>
+
+    <!-- Google Assistant & Gemini Built-In Intent for Resuming Playback -->
+    <capability android:name="actions.intent.RESUME_PODCAST">
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.eagertolisten.app"
+            android:targetClass="com.eagertolisten.app.MainActivity" />
+    </capability>
+
+    <!-- Google Assistant & Gemini Built-In Intent for Searching Podcasts -->
+    <capability android:name="actions.intent.SEARCH_PODCAST">
+        <intent
+            android:action="android.intent.action.MEDIA_SEARCH"
+            android:targetPackage="com.eagertolisten.app"
+            android:targetClass="com.eagertolisten.app.MainActivity">
+            <parameter
+                android:name="podcast.name"
+                android:key="query" />
+        </intent>
+    </capability>
+
+    <!-- Static Shortcut: Eager to be Healthy -->
+    <shortcut
+        android:shortcutId="play_eager_to_be_healthy"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_eager_to_be_healthy_short"
+        android:shortcutLongLabel="@string/shortcut_eager_to_be_healthy_long">
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.eagertolisten.app"
+            android:targetClass="com.eagertolisten.app.MainActivity">
+            <extra
+                android:name="query"
+                android:value="Eager to be Healthy" />
+        </intent>
+        <capability-binding android:key="actions.intent.PLAY_PODCAST">
+            <parameter-binding
+                android:key="podcast.name"
+                android:value="@string/podcast_eager_to_be_healthy" />
+        </capability-binding>
+    </shortcut>
+
+    <!-- Static Shortcut: Pending Playlist -->
+    <shortcut
+        android:shortcutId="play_pending_playlist"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_play_playlist_short"
+        android:shortcutLongLabel="@string/shortcut_play_playlist_long">
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.eagertolisten.app"
+            android:targetClass="com.eagertolisten.app.MainActivity">
+            <extra
+                android:name="query"
+                android:value="Eager to Listen" />
+        </intent>
+        <capability-binding android:key="actions.intent.RESUME_PODCAST" />
+    </shortcut>
+</shortcuts>

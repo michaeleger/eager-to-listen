@@ -1,0 +1,13 @@
+{
+  "appId": "com.doggcatcher.app",
+  "appName": "Eager to Listen",
+  "webDir": "public",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
