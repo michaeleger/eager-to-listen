@@ -68,6 +68,7 @@ import com.eagertolisten.app.ui.theme.ForestGreenDarkest
 import kotlinx.coroutines.launch
 import com.eagertolisten.app.ui.theme.ForestGreenElevated
 import com.eagertolisten.app.ui.theme.ForestGreenSurface
+import com.eagertolisten.app.ui.theme.Priority1Color
 import com.eagertolisten.app.ui.theme.Priority4Color
 import com.eagertolisten.app.ui.theme.TextMuted
 import com.eagertolisten.app.ui.theme.TextPrimary
@@ -143,6 +144,11 @@ fun SettingsScreen(
             ) ?: ""
         )
     }
+
+    val nwcKeyStorage = remember { com.eagertolisten.app.data.v4v.NwcKeyStorage(context) }
+    var nwcConnection by remember { mutableStateOf(if (com.eagertolisten.app.FeatureFlags.V4V_NWC) nwcKeyStorage.getConnection() else null) }
+    var nwcInputUri by remember { mutableStateOf("") }
+    var nwcStatusMsg by remember { mutableStateOf<String?>(null) }
     var showInspirationStudio by remember { mutableStateOf(false) }
     var isManualUpdating by remember { mutableStateOf(false) }
     var manualUpdateStatus by remember { mutableStateOf<String?>(null) }
@@ -855,6 +861,97 @@ fun SettingsScreen(
                     Text("• <podcast:person> host & guest roles", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     Text("• <podcast:soundbite> highlight previews", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     Text("• <podcast:funding> Value4Value & creator support", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+            }
+
+            if (com.eagertolisten.app.FeatureFlags.V4V_NWC) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.size(10.dp))
+                            Text(
+                                text = "Nostr Wallet Connect (NIP-47)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = TextPrimary
+                            )
+                        }
+
+                        Text(
+                            text = "Connect your non-custodial Lightning wallet (Alby, Mutiny, Umbrel) for direct Value-for-Value boostagrams without leaving the app. Client secrets are encrypted in Android KeyStore.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+
+                        if (nwcConnection != null) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ForestGreenSurface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Connected Wallet:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = Priority4Color)
+                                    Text("Pubkey: ${nwcConnection!!.walletPubkey.take(16)}...", style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+                                    Text("Relay: ${nwcConnection!!.relayUrl}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    if (!nwcConnection!!.lud16.isNullOrBlank()) {
+                                        Text("Lightning Address: ${nwcConnection!!.lud16}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    nwcKeyStorage.clearConnection()
+                                    nwcConnection = null
+                                    nwcStatusMsg = "Wallet disconnected."
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Priority1Color),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Disconnect Wallet", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = nwcInputUri,
+                                onValueChange = { nwcInputUri = it },
+                                label = { Text("Connection URI (nostr+walletconnect://...)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            if (nwcStatusMsg != null) {
+                                Text(nwcStatusMsg!!, style = MaterialTheme.typography.bodySmall, color = BurntOrange)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val parsed = com.eagertolisten.app.data.v4v.NwcConnection.parse(nwcInputUri)
+                                    parsed.onSuccess { conn ->
+                                        val saved = nwcKeyStorage.saveConnection(conn)
+                                        if (saved) {
+                                            nwcConnection = conn
+                                            nwcInputUri = ""
+                                            nwcStatusMsg = "Wallet connected successfully!"
+                                        } else {
+                                            nwcStatusMsg = "Failed to securely save connection to KeyStore."
+                                        }
+                                    }.onFailure { err ->
+                                        nwcStatusMsg = "Invalid URI: ${err.localizedMessage ?: "Format error"}"
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = nwcInputUri.isNotBlank()
+                            ) {
+                                Text("Connect Wallet", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 

@@ -48,10 +48,12 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,7 +64,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import com.eagertolisten.app.FeatureFlags
 import com.eagertolisten.app.data.model.PodcastValue
+import com.eagertolisten.app.data.v4v.BoostagramPayload
+import com.eagertolisten.app.data.v4v.NwcClient
+import com.eagertolisten.app.data.v4v.NwcKeyStorage
+import com.eagertolisten.app.data.v4v.V4VSplitMath
 import com.eagertolisten.app.ui.theme.BurntOrange
 import com.eagertolisten.app.ui.theme.ForestGreenDarkest
 import com.eagertolisten.app.ui.theme.ForestGreenElevated
@@ -92,6 +100,61 @@ fun BoostSheet(
     var showRecipientsDetail by remember { mutableStateOf(false) }
 
     val totalSplit = value.recipients.sumOf { it.split }.coerceAtLeast(1)
+
+    val scope = rememberCoroutineScope()
+    val nwcKeyStorage = remember { NwcKeyStorage(context) }
+    val nwcConnection = remember { if (FeatureFlags.V4V_NWC) nwcKeyStorage.getConnection() else null }
+    var isSendingNwc by remember { mutableStateOf(false) }
+    var nwcStatusMsg by remember { mutableStateOf<String?>(null) }
+
+    fun sendNwcBoost() {
+        val conn = nwcConnection ?: return
+        val sats = customSatsText.toLongOrNull() ?: selectedSats
+        val splits = V4VSplitMath.calculateSplits(sats, value.recipients)
+        if (splits.isEmpty()) {
+            Toast.makeText(context, "No valid recipients for split", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        scope.launch {
+            isSendingNwc = true
+            nwcStatusMsg = "Sending boost via Nostr Wallet Connect..."
+            val client = NwcClient()
+            var successCount = 0
+            var errorMsg: String? = null
+
+            for (split in splits) {
+                val payload = BoostagramPayload(
+                    podcast = podcastTitle,
+                    feedUrl = "",
+                    episode = episodeTitle,
+                    action = "boost",
+                    message = boostagramMessage.ifBlank { null },
+                    senderName = senderName.ifBlank { null },
+                    valueMsat = split.amountMsats,
+                    valueMsatTotal = sats * 1000L
+                )
+                val reqJson = client.buildKeysendPayload(
+                    recipientPubkey = split.recipient.address,
+                    amountMsats = split.amountMsats,
+                    tlvHex = payload.toTlvHex()
+                )
+                val result = client.sendRequest(conn, reqJson)
+                if (result.isSuccess) {
+                    successCount++
+                } else {
+                    errorMsg = result.exceptionOrNull()?.message
+                }
+            }
+            isSendingNwc = false
+            if (successCount == splits.size) {
+                Toast.makeText(context, "⚡ Boost of %,d sats sent successfully!".format(sats), Toast.LENGTH_LONG).show()
+                onDismiss()
+            } else {
+                nwcStatusMsg = "Sent $successCount of ${splits.size} splits: ${errorMsg ?: "Partial failure"}"
+            }
+        }
+    }
 
     fun sendBoostIntent() {
         val sats = customSatsText.toLongOrNull() ?: selectedSats
@@ -426,43 +489,102 @@ fun BoostSheet(
                 }
             }
 
+            if (nwcStatusMsg != null) {
+                Text(
+                    text = nwcStatusMsg!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BurntOrange,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+
             // Action Buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { copyDetails() },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
-                    shape = RoundedCornerShape(12.dp)
+            if (FeatureFlags.V4V_NWC && nwcConnection != null) {
+                Button(
+                    onClick = { sendNwcBoost() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isSendingNwc
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Copy Info", fontSize = 13.sp)
+                    if (isSendingNwc) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = TextPrimary, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    val satsDisplay = customSatsText.toLongOrNull() ?: selectedSats
+                    Text("Boost %,d Sats via NWC".format(satsDisplay), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
-                Button(
-                    onClick = { sendBoostIntent() },
-                    modifier = Modifier.weight(1.3f),
-                    colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
-                    shape = RoundedCornerShape(12.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ElectricBolt,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    val satsDisplay = customSatsText.toLongOrNull() ?: selectedSats
-                    Text("Send %,d Sats".format(satsDisplay), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedButton(
+                        onClick = { copyDetails() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Copy Info", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { sendBoostIntent() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("External App", fontSize = 12.sp)
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { copyDetails() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy Info", fontSize = 13.sp)
+                    }
+
+                    Button(
+                        onClick = { sendBoostIntent() },
+                        modifier = Modifier.weight(1.3f),
+                        colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val satsDisplay = customSatsText.toLongOrNull() ?: selectedSats
+                        Text("Send %,d Sats".format(satsDisplay), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
 
