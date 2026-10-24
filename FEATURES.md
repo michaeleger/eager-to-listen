@@ -9,6 +9,12 @@
 
 *Turn chaotic episode backlogs into an effortless, perfectly balanced daily radio broadcast.*
 
+- **Core Engine Invariants (Strictly Enforced)**:
+  - **Invariant I1 (Never Replay Heard Content)**: High-water mark tracking guarantees older episodes are never erroneously re-enqueued.
+  - **Invariant I2 (Durable Played State)**: Completed status is never cleared except by explicit user mark-unplayed action.
+  - **Invariant I3 (User Settings Win)**: Local feed customizations always win over remote sync.
+  - **Invariant I4 (Pinned Manual Survival)**: Pinned items survive automatic queue recalculations.
+  - **Invariant I5 (Room Queue Single Source of Truth)**: The database queue state is the definitive playback sequence.
 - **5-Tier Priority Matrix (P1 to P5)**:
   - Assign subscription priority from Essential Morning Must-Listens (P1) to casual weekend leisure (P5).
   - High-priority feeds automatically take precedence in the programmed broadcast queue.
@@ -31,7 +37,7 @@
   - Tap `"Play Next"` on any episode to inject it into the `#1 NEXT` slot.
   - The player automatically returns to your programmed broadcast schedule once finished.
 - **Custom Intro & Outro Skipping**:
-  - Per-feed millisecond-precise offsets to skip annoying intro themes (e.g. skip first 45s) and trailing credits/promos (e.g. skip final 60s).
+  - Per-feed millisecond-precise offsets to skip recurring intro themes (e.g. skip first 45s) and trailing credits/promos (e.g. skip final 60s).
 
 ---
 
@@ -73,9 +79,10 @@
   - **90-Minute Inactivity Fallback**: If listening to a live stream and playback pauses or drops for $\ge 90$ minutes, the app automatically reverts to the top of your programmed playlist.
 - **Lightning Value-for-Value (V4V / `<podcast:value>`)**:
   - Direct satoshi micropayments and Boostagram messages to podcast creators.
-  - Visual recipient split breakdown (hosts, producers, apps).
-  - Quick-tip chips: `⚡ 500`, `⚡ 1,000`, `⚡ 2,100`, `⚡ 5,000`, `⚡ 10,000`.
-  - External wallet integration with WebLN protocol and clipboard payment request fallbacks.
+  - Proportional satoshi split math with fee handling (`V4VSplitMath`) ensuring the exact chosen amount is distributed across all recipients with remainders assigned to the primary host.
+  - Podcasting 2.0 / bLIP-10 TLV boostagram record `7629169` metadata.
+  - Nostr Wallet Connect (NIP-47) integration feature-flagged behind `FeatureFlags.V4V_NWC` with hardware KeyStore AES-256-GCM secret storage.
+  - External wallet integration with `lightning:` URI protocol and clipboard payment request fallbacks.
 - **Universal Creator Support (`<podcast:funding>`)**:
   - Native display for Patreon, PayPal, Stripe, and Buy Me a Coffee links.
   - Custom donation URL override for independent podcasters.
@@ -101,15 +108,16 @@
 
 *Your data belongs to you. Zero server middle-men, zero tracking.*
 
-- **Native Google Drive AppData Sync**:
-  - Uses Android Storage Access Framework (SAF) `DocumentFile` directly with Google Drive.
-  - **Zero third-party servers, zero API keys required, zero telemetry tracking.**
-  - Bidirectional 3-way merge syncing subscriptions, custom feed settings, playback positions, and queue state.
-  - Permanent persistable URI permissions that endure app updates and phone reboots.
+- **Format 2 Cloud & Local Sync**:
+  - Format 2 JSON serializer with atomic write safety (`.tmp` -> validation -> `.bak` -> atomic rename).
+  - Last-Write-Wins (LWW) feed rule merging with `settingsUpdatedAt` timestamps.
+  - Soft-unsubscribe tombstones preserving played history while removing shows across devices.
+  - Bidirectional sync over Google Drive AppData using Android Storage Access Framework (SAF).
 - **Podcast Addict Migration Engine**:
   - Instant one-tap import for Podcast Addict `.backup` (zip), SQLite `.db`, and `.opml` files.
   - Migrates your full feed catalog, cover artwork, custom playback speeds, skip intro/outro offsets, and played history.
 - **OPML 2.0 Import / Export**:
+  - Full OPML 2.0 subscription export via SAF `CreateDocument`.
   - Seamless migration to and from Apple Podcasts, Pocket Casts, Overcast, and AntennaPod.
 
 ---
@@ -122,11 +130,14 @@
   - Custom ExoPlayer `DefaultLoadControl` (30s min, 180s max buffer, 180s back-buffer).
   - Retains 3 minutes of back-audio so you can rewind or skip forward without triggering network fetches.
   - Cellular dead zones, tunnels, and subway commutes play seamlessly without stuttering or premature cutoff.
-- **4-Hour Queue Ahead Auto-Download**:
-  - Background caching automatically downloads upcoming programmed episodes up to 4 hours ahead.
-  - Automatically excludes `NEWS` feeds from pre-downloading to guarantee news reports remain fresh.
-- **Scheduled 12-Hour Updates & Local DB Snapshot**:
-  - `ScheduledUpdateWorker` runs periodic updates on Wi-Fi/unmetered connections to sync feeds and back up your database snapshot to local storage and Google Drive.
+- **Offline Queue Ahead Buffer & WorkManager**:
+  - `DownloadQueueWorker` runs with `FOREGROUND_SERVICE_DATA_SYNC` progress notifications.
+  - Partial download HTTP `Range` resume using `.part` temporary files.
+  - Configurable queue buffer (2h, 4h, 6h, 8h) with cellular download toggle and storage check.
+  - Excludes `NEWS` feeds from pre-downloading to guarantee breaking news reports remain fresh.
+  - Automated weekly orphan sweeper cleans unreferenced media files.
+- **Scheduled Updates & Local DB Snapshot**:
+  - `ScheduledUpdateWorker` runs periodic updates to refresh feeds, rebuild queue, top up offline downloads, and back up your database snapshot.
 
 ---
 

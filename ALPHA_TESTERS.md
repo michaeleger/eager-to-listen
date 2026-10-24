@@ -48,16 +48,17 @@ We are opening our **Closed Alpha Testing Program** and looking for passionate l
 ## 📲 How to Install & Get Started
 
 ### Option A: Native Android App (Pixel, Samsung, OnePlus, etc.)
-*Supports Android 8.0 (Oreo / API 26) through Android 15.*
+*Supports Android 8.0 (Oreo / API 26) through Android 16.*
 
-1. **Download the Alpha APK**:
-   - Download the latest `app-debug.apk` directly from your tester invite email or the [Releases page].
+1. **Download the Alpha APK (v0.9.0-alpha)**:
+   - Download the latest `app-debug.apk` directly from your tester invite email or install via ADB.
 2. **Enable Unknown Apps**:
    - When opening the APK on your device, allow your browser or file manager permission to *"Install unknown apps"* if prompted.
 3. **Launch Eager to Listen**:
    - Open the app from your home screen or app drawer.
-4. **Import Your Feeds (OPML)**:
-   - Go to **Settings** ➔ **Import OPML** to instantly import your subscriptions from Pocket Casts, AntennaPod, Overcast, Apple Podcasts, or DoggCatcher.
+4. **Import or Export Your Feeds (OPML / Backup)**:
+   - Go to **Settings** ➔ **Import Subscriptions (Backup / OPML)** to instantly import your subscriptions and history.
+   - You can also tap **Export Subscriptions (OPML)** to export your full catalog at any time.
    - Or tap **Discover** to search for shows or paste any direct RSS feed URL!
 
 ### Option B: Web Player & Progressive Web App (PWA)

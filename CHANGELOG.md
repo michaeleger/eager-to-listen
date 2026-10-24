@@ -5,6 +5,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.9.0-alpha] - 2026-10-24
+
+### 🚀 Google Play Closed Testing Milestone Release
+
+#### 🔒 Data Integrity & Schema Migration (Phases 0 & 1)
+- **Room SQLite Schema v6**: Implemented `MIGRATION_5_6` with Room schema JSON export and automated migration verification. Removed destructive fallback migration.
+- **Feed URL Normalization**: Standardized feed URLs using `FeedUrl.normalize()` to strip tracking parameters and enforce lowercase schemes and hostnames.
+- **Composite Episode IDs**: Implemented `EpisodeId.of(podcastId, guid, enclosureUrl)` with SHA-256 fallback to prevent collision between podcasts or duplicate episodes.
+- **Atomic Operations**: Migrated insert queries to Room `@Upsert` to guarantee idempotent writes.
+
+#### 🚗 In-Car Playback & Media Controls (Phase 2)
+- **Centralized Playback Configuration**: Extracted `PlaybackConfig` defining dedicated +90s forward jump and -15s rewind seek intervals.
+- **Dedicated Track Navigation**: Added dedicated on-screen Next Episode advance button alongside seek controls. Media button routing cleanly separates playlist advancement from seeking.
+- **Per-Show Playback Speeds**: Audio playback speed is now persisted per-podcast and seamlessly restored on episode change.
+- **Live Inactivity Timeout**: Automated 90-minute live broadcast stream inactivity timeout cleanly advances playback to the next programmed playlist episode.
+
+#### 📻 Pure Queue Engine & Invariants (Phase 3)
+- **Pure Domain Engine**: Extracted `QueueEngine.kt` decoupled from Android framework dependencies, fully verified with 28 automated unit tests.
+- **Core Invariants Strictly Maintained**:
+  - **Invariant I1**: Never replay heard content. High-water mark tracking guarantees older episodes are never erroneously re-enqueued.
+  - **Invariant I2**: Played state is durable. Completed status is never cleared except by explicit user action.
+  - **Invariant I3**: User settings win. Local feed customizations are never overridden by remote sync.
+  - **Invariant I4**: Pinned manual items survive automatic queue recalculations.
+  - **Invariant I5**: Room database queue is the single source of truth.
+- **Radio U Rotation**: Implemented 4 play order strategies (`NEWS`, `CHRONOLOGICAL`, `REVERSE_CHRONOLOGICAL`, `EVERGREEN`), anti-binge consecutive caps, and round-robin fair interleaving.
+
+#### 🔄 Format 2 Sync & Backup (Phase 4)
+- **Format 2 JSON Serializer**: Supports comprehensive backup and two-device synchronization via `SyncSerializer.kt`.
+- **Atomic Write Safety**: Backups write to `.tmp.json`, validate JSON integrity, backup previous file to `.bak.json`, and perform atomic rename.
+- **LWW Rule Merging**: Feed rule merging using timestamped `settingsUpdatedAt` ensures user rule changes synchronize reliably across devices.
+- **Tombstone Soft-Unsubscribes**: Soft-unsubscribing preserves episode played history and local rules while syncing removal across devices.
+- **SAF Backup & Restore UI**: Added Export Backup, Restore Backup, and History Purge actions in Settings.
+
+#### 💾 Background Offline Queue Ahead & WorkManager (Phase 5)
+- **DownloadQueueWorker**: WorkManager `CoroutineWorker` running with `FOREGROUND_SERVICE_DATA_SYNC` progress notifications.
+- **Partial Download Resume**: Implemented HTTP `Range` request resuming using `.part` temporary files.
+- **Storage Protection & Cellular Toggle**: Checks device storage and respects the "Allow downloads over cellular" toggle.
+- **Weekly Orphan Sweeper**: Automated cleanup removes stale or unreferenced downloaded media files.
+
+#### 📤 OPML Subscription Export (Phase 6)
+- **OPML 2.0 Exporter**: Added standard OPML 2.0 subscription export via Android Storage Access Framework (`CreateDocument`).
+- **XML Sanitization**: Escapes XML entities in titles, feed URLs, and categories to guarantee compliance across all podcast players.
+
+#### ⚡ Value-for-Value & Nostr Wallet Connect (Phase 7)
+- **Feature-Flagged NWC**: Integrated Nostr Wallet Connect (NIP-47) behind `FeatureFlags.V4V_NWC` (active in debug builds, disabled in release builds).
+- **Proportional Split Math**: Deterministic satoshi split calculations across creators, contributors, and hosting fees (`V4VSplitMath`). Remainder satoshis are assigned to the primary creator.
+- **Podcasting 2.0 / bLIP-10 Boostagrams**: Generates TLV record `7629169` boostagram metadata (feed, episode, timestamp, speed, action, message, sender).
+- **Hardware KeyStore Secret Storage**: Persists NWC connection secrets using hardware-backed AES-256-GCM encryption in Android KeyStore.
+- **Architectural Decision Record**: Documented in `docs/adr/0001-nwc.md`.
+
+#### 🛡️ Play Store Readiness & Security Hardening (Phases 8 & 9)
+- **Security & Extraction Rules**: Added `network_security_config.xml` (cleartext permission for legacy podcast audio enclosures) and `data_extraction_rules.xml` (excludes downloads and secrets from cloud backups).
+- **Transcript Parser Precedence Fix**: Corrected arithmetic precedence in timestamp parsing (`((val * 1000).toLong())`).
+- **Release Verification**: Verified clean R8 / Proguard compilation and lint vital analysis for `assembleRelease`.
+- **Web Proxy SSRF Hardening**: Enforced private/loopback/link-local IP filtering and 15MB response limits on Node.js proxy.
+- **Web Client XSS Defense**: Sanitized shownotes and escaped HTML across all DOM injection points.
+
+---
+
 ## [0.5.1-alpha] - 2026-10-23
 
 ### 🚗 In-Car & Steering Wheel Controls

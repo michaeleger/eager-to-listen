@@ -86,28 +86,30 @@ Built specifically for safe, frictionless hands-free driving:
 
 | Parameter | Specification |
 | :--- | :--- |
-| **Operating System** | Android 8.0 (Oreo / API 26) through Android 15 (Vanilla Ice Cream / API 35) |
+| **Operating System** | Android 8.0 (API 26) through Android 16 (API 36 / targetSdk 36, compileSdk 36) |
 | **Target Architecture** | `arm64-v8a`, `armeabi-v7a`, `x86_64` |
 | **Application Framework** | 100% Kotlin with Jetpack Compose & Material 3 |
-| **Audio Pipeline** | AndroidX Media3 (`media3-exoplayer`, `media3-session`, `media3-ui`) |
-| **Database Engine** | Room SQLite v5 with full foreign-key constraints & reactive `StateFlow` queries |
+| **Audio Pipeline** | AndroidX Media3 1.5.1 (`media3-exoplayer`, `media3-session`, `media3-ui`) |
+| **Queue Engine** | Pure domain `QueueEngine` strictly preserving Invariants I1–I5 |
+| **Database Engine** | Room SQLite v6 with schema validation and `MIGRATION_5_6` |
 | **Buffer Management** | ExoPlayer `DefaultLoadControl` (30s min, 180s max buffer, 180s retain back-buffer) |
-| **Sync Protocol** | Android Storage Access Framework (SAF) `DocumentFile` over Google Drive AppData |
+| **Sync Protocol** | Format 2 JSON serializer with atomic write safety (.tmp -> validation -> .bak) |
+| **Offline Downloads** | WorkManager `DownloadQueueWorker` (`FOREGROUND_SERVICE_DATA_SYNC`) with HTTP Range resume |
 | **Automotive Support** | `androidx.media3.session.MediaLibraryService` with Android Auto XML declarations |
-| **Web Companion** | Progressive Web App (PWA) with responsive mobile/desktop UI & Node.js proxy |
-| **Podcast Standards** | RSS 2.0, iTunes Podcast Specification, Podcasting 2.0 (Phase 1–6 tags) |
-| **Import / Export** | OPML 2.0, Podcast Addict SQLite DB / Backup ZIP, Eager JSON Sync format |
+| **V4V & Lightning** | Feature-flagged Nostr Wallet Connect (NIP-47), bLIP-10 TLV boostagrams, KeyStore encryption |
+| **Import / Export** | OPML 2.0 (SAF export/import), Podcast Addict SQLite DB / Backup ZIP, Eager JSON Sync |
 | **Color Theme** | Forest Green Darkest (`#0C1611`), Forest Green Surface (`#1C2E25`), Burnt Orange (`#EB5E17`) |
 
 ---
 
-## 👥 Alpha Program & Contact
+## 👥 Closed Testing Program & Contact
 
 - **Application Name**: Eager to Listen
-- **Current Version**: v1.0 Alpha (Build 5)
+- **Current Version**: v0.9.0-alpha (Build 9)
 - **Developer / Creator**: Michael Scott Eger
 - **Direct Contact & Inquiries**: `michael.eger@michaelegerconsulting.com`
 - **Documentation & Guides**: 
   - [Alpha Tester Recruitment & Guide (ALPHA_TESTERS.md)](./ALPHA_TESTERS.md)
   - [Alpha Outreach & Recruitment Templates (ALPHA_OUTREACH_TEMPLATES.md)](./ALPHA_OUTREACH_TEMPLATES.md)
   - [Technical Architecture & Build Guide (README.md)](./README.md)
+  - [Architectural Decision Records (docs/adr/0001-nwc.md)](./docs/adr/0001-nwc.md)
