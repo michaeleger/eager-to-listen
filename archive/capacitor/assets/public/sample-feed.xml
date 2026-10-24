@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>Eager to be Healthy Podcast (Sample)</title>
+    <link>http://localhost:3000</link>
+    <language>en-us</language>
+    <copyright>Copyright 2026 Eager to be Healthy</copyright>
+    <itunes:author>Dr. Michael</itunes:author>
+    <itunes:summary>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and DoggCatcher priority queue integration.</itunes:summary>
+    <description>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and DoggCatcher priority queue integration.</description>
+    <itunes:image href="https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&amp;w=300&amp;h=300&amp;fit=crop" />
+    <itunes:category text="Health &amp; Fitness" />
+    
+    <item>
+      <title>Episode 1: The Foundations of Healthy Living</title>
+      <itunes:author>Dr. Michael</itunes:author>
+      <itunes:subtitle>Essential guidelines for maintaining a long and vibrant life.</itunes:subtitle>
+      <itunes:summary>In this inaugural episode, Dr. Michael discusses the fundamental pillars of longevity: sleep, movement, and nutrition. Follow along with the interactive transcript!</itunes:summary>
+      <description>In this inaugural episode, Dr. Michael discusses the fundamental pillars of longevity: sleep, movement, and nutrition. Follow along with the interactive transcript!</description>
+      <pubDate>Mon, 29 Jun 2026 08:00:00 EST</pubDate>
+      <enclosure url="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" length="6127167" type="audio/mpeg" />
+      <itunes:duration>06:12</itunes:duration>
+      <guid isPermaLink="false">eager-healthy-ep1</guid>
+      <!-- Podcast 2.0 Transcript tag -->
+      <podcast:transcript url="/sample-transcript.vtt" type="text/vtt" language="en" />
+    </item>
+
+    <item>
+      <title>Episode 2: Designing Your Sleep Sanctuary</title>
+      <itunes:author>Dr. Michael</itunes:author>
+      <itunes:subtitle>How sleep environment impacts cognitive performance.</itunes:subtitle>
+      <itunes:summary>Dr. Michael dives deep into circadian rhythms and shares 5 simple tips to optimize your bedroom for deeper, restorative sleep.</itunes:summary>
+      <description>Dr. Michael dives deep into circadian rhythms and shares 5 simple tips to optimize your bedroom for deeper, restorative sleep.</description>
+      <pubDate>Tue, 30 Jun 2026 08:00:00 EST</pubDate>
+      <enclosure url="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" length="7053522" type="audio/mpeg" />
+      <itunes:duration>07:05</itunes:duration>
+      <guid isPermaLink="false">eager-healthy-ep2</guid>
+      <!-- Podcast 2.0 Transcript tag pointing to same transcript for simplicity -->
+      <podcast:transcript url="/sample-transcript.vtt" type="text/vtt" language="en" />
+    </item>
+  </channel>
+</rss>

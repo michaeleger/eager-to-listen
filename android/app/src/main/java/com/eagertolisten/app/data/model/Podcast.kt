@@ -14,7 +14,7 @@ data class Podcast(
     val description: String,
     val subscribedAt: Long = System.currentTimeMillis(),
     
-    // DoggCatcher Customization Rules
+    // Radio U Customization Rules
     val priority: Int = 3, // 1 (Highest) to 5 (Lowest)
     val skipIntroSeconds: Int = 0, // 0 to 300 seconds
     val skipOutroSeconds: Int = 0, // 0 to 300 seconds

@@ -46,7 +46,13 @@ class FeedParser {
     }
 
     fun parse(inputStream: InputStream, feedUrl: String, podcastId: String = feedUrl): ParsedFeed {
-        val parser = Xml.newPullParser()
+        val parser = try {
+            Xml.newPullParser()
+        } catch (_: Throwable) {
+            org.xmlpull.v1.XmlPullParserFactory.newInstance().apply {
+                isNamespaceAware = true
+            }.newPullParser()
+        }
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
         parser.setInput(inputStream, null)
 

@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InspirationClip::class
     ],
     version = 5,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class EagerDatabase : RoomDatabase() {
     abstract fun podcastDao(): PodcastDao
@@ -99,7 +99,6 @@ abstract class EagerDatabase : RoomDatabase() {
                         db.execSQL("CREATE INDEX IF NOT EXISTS idx_queue_order ON queue_items(orderIndex, episodeId)")
                     }
                 })
-                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

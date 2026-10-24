@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
 
 enum class QueueSortRule {
     PROGRAMMED_FAIR,          // Smart Fair Interleaved Order (Play Orders + Feed Limit above priority)
-    PRIORITY_THEN_DATE_ASC,   // DoggCatcher Classic: Priority 1 first, then oldest to newest
+    PRIORITY_THEN_DATE_ASC,   // Radio U Classic: Priority 1 first, then oldest to newest
     PRIORITY_THEN_DATE_DESC,  // Priority 1 first, then newest
     DATE_DESC,                // Newest first regardless of priority
     DATE_ASC,                 // Oldest first
@@ -603,7 +603,7 @@ class PodcastRepository(context: Context) {
         }
     }
 
-    // DoggCatcher Smart Sorting
+    // Radio U Smart Sorting
     suspend fun sortQueue(rule: QueueSortRule) = withContext(Dispatchers.IO) {
         setSavedSortRule(rule)
         if (rule == QueueSortRule.PROGRAMMED_FAIR) {

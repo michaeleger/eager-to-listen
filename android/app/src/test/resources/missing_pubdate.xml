@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Missing PubDate Podcast</title>
+    <description>Test podcast with missing pubDate</description>
+    <item>
+      <title>Episode without pubDate</title>
+      <guid>no-pubdate-1</guid>
+      <enclosure url="https://example.com/audio1.mp3" type="audio/mpeg" length="1234"/>
+    </item>
+    <item>
+      <title>Episode with garbage pubDate</title>
+      <guid>garbage-pubdate-2</guid>
+      <pubDate>not-a-valid-date-string</pubDate>
+      <enclosure url="https://example.com/audio2.mp3" type="audio/mpeg" length="1234"/>
+    </item>
+  </channel>
+</rss>

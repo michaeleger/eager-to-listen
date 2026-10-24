@@ -585,7 +585,7 @@ class PlaybackService : MediaLibraryService() {
                     persistCurrentProgress()
                 }
 
-                // Check DoggCatcher Skip Outro rule (only when episode is longer than skipOutro + 15s)
+                // Check Skip Outro rule (only when episode is longer than skipOutro + 15s)
                 val currentState = PlaybackStateManager.state.value
                 val skipOutroMs = currentState.skipOutroSeconds * 1000L
                 if (skipOutroMs > 0 && duration > skipOutroMs + 15_000L && (duration - currentPos) <= skipOutroMs) {
