@@ -42,10 +42,12 @@ class MigrationTest {
             execSQL("""
                 INSERT INTO episodes (
                     id, podcastId, podcastTitle, title, audioUrl,
-                    durationSeconds, publishedAt, isCompleted, playbackPositionSeconds, updatedAt
+                    durationSeconds, publishedAt, isCompleted, playbackPositionSeconds, updatedAt,
+                    description, isLive, isDownloaded
                 ) VALUES (
                     'raw-guid-1', 'feed1', 'Test Show', 'Ep 1', 'https://example.com/1.mp3',
-                    300, 1000, 1, 300, 1500
+                    300, 1000, 1, 300, 1500,
+                    'Episode Description', 0, 0
                 )
             """)
             execSQL("""
