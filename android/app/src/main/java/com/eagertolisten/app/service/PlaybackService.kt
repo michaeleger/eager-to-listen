@@ -173,8 +173,8 @@ class PlaybackService : MediaLibraryService() {
         // 3. Wrap in ForwardingPlayer to guarantee podcast transport controls:
         // - Keep COMMAND_SEEK_TO_NEXT / PREVIOUS advertised as available so Media3's
         //   MediaSessionStub & MediaSessionLegacyStub accept car steering wheel / Bluetooth AVRCP
-        //   next/prev button presses instead of rejecting them, and route ALL of them to
-        //   performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS) and performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS).
+        //   next/prev button presses instead of rejecting them. Next/previous navigate the queue
+        //   (skipCurrentEpisode / playPreviousEpisodeOrRestart); seekForward/seekBack jump +90s/-15s.
         player = object : ForwardingPlayer(rawPlayer) {
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
@@ -212,10 +212,9 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
 
-            // OPEN(Q6): Android Auto routes steering-wheel next/prev and on-screen next/prev slots
-            // through the same seekToNext/seekToPrevious callbacks. Because steering wheel buttons
-            // must perform +90s/-15s jumps, on-screen next/prev also perform +90s/-15s jumps.
-            // Skip is exposed as the dedicated on-screen custom action (CUSTOM_ACTION_SKIP_NEXT).
+            // Android Auto routes steering-wheel next/prev and the on-screen next/prev slots through
+            // the same seekToNext/seekToPrevious callbacks: both navigate the queue. The +90s/-15s
+            // jumps are the custom FAST_FORWARD / REWIND actions and the media FF/REW keys.
             override fun seekToNext() {
                 skipCurrentEpisode()
             }
