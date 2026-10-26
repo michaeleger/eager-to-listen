@@ -82,6 +82,17 @@ class PlaybackService : MediaLibraryService() {
     private var hasPrefetchedUpcomingNews = false
     private var queueMirrorJob: Job? = null
     private var currentPodcastObserveJob: Job? = null
+    private val playbackHistory = ArrayDeque<String>()
+
+    private fun recordPlaybackHistory(episodeId: String?) {
+        if (episodeId == null) return
+        if (playbackHistory.isEmpty() || playbackHistory.last() != episodeId) {
+            playbackHistory.addLast(episodeId)
+            if (playbackHistory.size > 20) {
+                playbackHistory.removeFirst()
+            }
+        }
+    }
 
     private fun checkMainThread() {
         check(Looper.myLooper() == Looper.getMainLooper()) {
@@ -101,6 +112,7 @@ class PlaybackService : MediaLibraryService() {
         const val CUSTOM_ACTION_REWIND = "com.eagertolisten.app.ACTION_REWIND"
         const val CUSTOM_ACTION_FAST_FORWARD = "com.eagertolisten.app.ACTION_FAST_FORWARD"
         const val CUSTOM_ACTION_SKIP_NEXT = "com.eagertolisten.app.ACTION_SKIP_NEXT"
+        const val CUSTOM_ACTION_SKIP_PREVIOUS = "com.eagertolisten.app.ACTION_SKIP_PREVIOUS"
         const val CUSTOM_ACTION_SAVE_INSPIRATION = "com.eagertolisten.app.ACTION_SAVE_INSPIRATION"
 
         // Android Auto Media Browsing Categories
@@ -199,19 +211,19 @@ class PlaybackService : MediaLibraryService() {
             // must perform +90s/-15s jumps, on-screen next/prev also perform +90s/-15s jumps.
             // Skip is exposed as the dedicated on-screen custom action (CUSTOM_ACTION_SKIP_NEXT).
             override fun seekToNext() {
-                performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                skipCurrentEpisode()
             }
 
             override fun seekToNextMediaItem() {
-                performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                skipCurrentEpisode()
             }
 
             override fun seekToPrevious() {
-                performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                playPreviousEpisodeOrRestart()
             }
 
             override fun seekToPreviousMediaItem() {
-                performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                playPreviousEpisodeOrRestart()
             }
 
             override fun seekForward() {
@@ -268,6 +280,10 @@ class PlaybackService : MediaLibraryService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 super.onMediaItemTransition(mediaItem, reason)
                 val episodeId = mediaItem?.mediaId ?: return
+                val currentId = PlaybackStateManager.state.value.currentEpisode?.id
+                if (currentId != null && currentId != episodeId) {
+                    recordPlaybackHistory(currentId)
+                }
                 serviceScope.launch(Dispatchers.IO) {
                     val episode = database.episodeDao().getEpisodeByIdSync(episodeId) ?: return@launch
                     val podcast = database.podcastDao().getPodcastByIdSync(episode.podcastId)
@@ -681,6 +697,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun loadAndPlayEpisode(episodeId: String, podcastId: String?) {
+        val currentId = PlaybackStateManager.state.value.currentEpisode?.id
+        if (currentId != null && currentId != episodeId) {
+            recordPlaybackHistory(currentId)
+        }
         serviceScope.launch(Dispatchers.IO) {
             val episode = database.episodeDao().getEpisodeByIdSync(episodeId) ?: return@launch
             val podcast = if (podcastId != null) database.podcastDao().getPodcastByIdSync(podcastId) else database.podcastDao().getPodcastByIdSync(episode.podcastId)
@@ -852,6 +872,8 @@ class PlaybackService : MediaLibraryService() {
 
     private fun playNextQueueEpisode() {
         checkMainThread()
+        val currentId = PlaybackStateManager.state.value.currentEpisode?.id
+        recordPlaybackHistory(currentId)
         serviceScope.launch(Dispatchers.IO) {
             val currentId = PlaybackStateManager.state.value.currentEpisode?.id
             val nextEpisodes = database.queueDao().getQueueEpisodesSync().filter { it.id != currentId && !it.isCompleted }
@@ -968,6 +990,35 @@ class PlaybackService : MediaLibraryService() {
             playNextQueueEpisode()
         }
     }
+    fun playPreviousEpisodeOrRestart() {
+        checkMainThread()
+        val currentEp = PlaybackStateManager.state.value.currentEpisode
+        val currentPos = rawPlayer.currentPosition
+        // If playing more than 5 seconds into the episode, restart current episode
+        if (currentPos > 5_000L) {
+            val skipIntro = PlaybackStateManager.state.value.skipIntroSeconds
+            val startPosMs = if (skipIntro > 0) skipIntro * 1000L else 0L
+            rawPlayer.seekTo(startPosMs)
+            PlaybackStateManager.setProgress(startPosMs, rawPlayer.duration, rawPlayer.bufferedPosition)
+            return
+        }
+
+        // At or near start (<= 5s): navigate to previous episode
+        if (rawPlayer.hasPreviousMediaItem()) {
+            rawPlayer.seekToPreviousMediaItem()
+            rawPlayer.play()
+            return
+        }
+
+        val previousId = playbackHistory.removeLastOrNull()
+        if (previousId != null) {
+            loadAndPlayEpisode(previousId, null)
+        } else {
+            rawPlayer.seekTo(0L)
+            PlaybackStateManager.setProgress(0L, rawPlayer.duration, rawPlayer.bufferedPosition)
+        }
+    }
+
 
     /**
      * Requirement 6: When the next podcast is expected to be a NEWS one, update that podcast
@@ -1286,6 +1337,7 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(CUSTOM_ACTION_REWIND, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_ACTION_FAST_FORWARD, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_ACTION_SKIP_NEXT, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_ACTION_SKIP_PREVIOUS, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_ACTION_SAVE_INSPIRATION, Bundle.EMPTY))
                 .build()
 
@@ -1689,6 +1741,10 @@ class PlaybackService : MediaLibraryService() {
                     skipCurrentEpisode()
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
+                CUSTOM_ACTION_SKIP_PREVIOUS -> {
+                    playPreviousEpisodeOrRestart()
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 CUSTOM_ACTION_SAVE_INSPIRATION -> {
                     val note = customCommand.customExtras.getString("note")
                         ?: args.getString("note")
@@ -1718,7 +1774,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                     KeyEvent.KEYCODE_MEDIA_NEXT -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                            skipCurrentEpisode()
                         }
                         return true
                     }
@@ -1732,7 +1788,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                     KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                            playPreviousEpisodeOrRestart()
                         }
                         return true
                     }

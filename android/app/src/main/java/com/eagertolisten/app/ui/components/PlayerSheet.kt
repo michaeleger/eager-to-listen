@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import com.eagertolisten.app.service.PlaybackController
 import androidx.compose.material3.Card
@@ -453,30 +454,43 @@ fun PlayerSheet(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Audio Controls: 15s Rewind, Play/Pause, 90s Skip
+                        // Audio Controls: Skip Previous, 15s Rewind, Play/Pause, 90s Skip, Skip Next
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Skip to Previous Episode Button
+                            IconButton(
+                                onClick = { PlaybackController.skipToPrevious() },
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipPrevious,
+                                    contentDescription = "Previous Episode",
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+
                             // 15-second Rewind Button
                             IconButton(
                                 onClick = onSeekBack,
-                                modifier = Modifier.size(60.dp)
+                                modifier = Modifier.size(54.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Default.Replay,
                                         contentDescription = "Rewind 15s",
                                         tint = TextPrimary,
-                                        modifier = Modifier.size(38.dp)
+                                        modifier = Modifier.size(34.dp)
                                     )
                                     Text(
                                         text = "15",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = BurntOrange,
-                                        modifier = Modifier.padding(top = 3.dp)
+                                        modifier = Modifier.padding(top = 2.dp)
                                     )
                                 }
                             }
@@ -484,12 +498,12 @@ fun PlayerSheet(
                             // Play / Pause Button
                             IconButton(
                                 onClick = onTogglePlayPause,
-                                modifier = Modifier.size(76.dp)
+                                modifier = Modifier.size(72.dp)
                             ) {
                                 Surface(
                                     shape = CircleShape,
                                     color = BurntOrange,
-                                    modifier = Modifier.size(70.dp),
+                                    modifier = Modifier.size(66.dp),
                                     shadowElevation = 6.dp
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -497,7 +511,7 @@ fun PlayerSheet(
                                             imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                             contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
                                             tint = TextPrimary,
-                                            modifier = Modifier.size(40.dp)
+                                            modifier = Modifier.size(38.dp)
                                         )
                                     }
                                 }
@@ -506,18 +520,18 @@ fun PlayerSheet(
                             // 90-second Forward Skip Button
                             IconButton(
                                 onClick = onSeekForward,
-                                modifier = Modifier.size(60.dp)
+                                modifier = Modifier.size(54.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Default.FastForward,
                                         contentDescription = "Forward 90s",
                                         tint = TextPrimary,
-                                        modifier = Modifier.size(38.dp)
+                                        modifier = Modifier.size(34.dp)
                                     )
                                     Text(
                                         text = "90",
-                                        fontSize = 10.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = BurntOrange,
                                         modifier = Modifier.padding(top = 2.dp)
@@ -528,13 +542,13 @@ fun PlayerSheet(
                             // Skip to Next Episode Button
                             IconButton(
                                 onClick = { PlaybackController.skipToNext() },
-                                modifier = Modifier.size(50.dp)
+                                modifier = Modifier.size(46.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.SkipNext,
                                     contentDescription = "Skip to Next Episode",
                                     tint = TextPrimary,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
                         }

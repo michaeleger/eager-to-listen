@@ -71,10 +71,11 @@ object PlaybackController {
     }
 
     fun skipToNext() {
-        mediaController?.sendCustomCommand(
-            androidx.media3.session.SessionCommand(PlaybackService.CUSTOM_ACTION_SKIP_NEXT, android.os.Bundle.EMPTY),
-            android.os.Bundle.EMPTY
-        )
+        mediaController?.seekToNext()
+    }
+
+    fun skipToPrevious() {
+        mediaController?.seekToPrevious()
     }
 
     fun saveInspiration(note: String = "") {

@@ -94,6 +94,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         PlaybackController.seekForward()
     }
 
+    fun skipToNext() {
+        PlaybackController.skipToNext()
+    }
+
+    fun skipToPrevious() {
+        PlaybackController.skipToPrevious()
+    }
+
     fun setSpeed(speed: Float) {
         val currentEp = PlaybackStateManager.state.value.currentEpisode
         if (currentEp != null && !currentEp.isLive) {
