@@ -192,7 +192,7 @@ Most of what round 1 asked for is genuinely fixed: finished episodes are marked 
 - **Gemini's unit tests:** I ran all 46 pure-JVM tests in a standalone Kotlin harness (Maven Central, with compile-only stubs for Room annotations, Media3 error codes, and `android.util.Xml`). All 46 pass, across QueueEngine, FeedParser, TranscriptParser, PlaybackCoordinator, V4V split math, boostagram payloads, the OPML exporter, and FeedUrl/EpisodeId. `SyncManagerTest`, `LiveSessionManagerTest` (Robolectric), and `MigrationTest` (device) couldn't run here.
 - **Migration 5→6:** I built the v6 schema from `schemas/…/6.json` in SQLite next to the tables the migration's own SQL creates. Columns, types, nullability, primary keys, foreign keys, and indexes match for all five tables, so Room's post-migration validation should pass. The data remap itself (ID canonicalization) is only covered by the device-only `MigrationTest`. **Run it on a device before shipping**, because it touches every install.
 - **Web player tests:** still 23 of 26. The web player is out of MVP scope, so this is deferred (see below).
-- The Android app as a whole still can't be built here (Google Maven is blocked).
+- The Android app as a whole still can't be built here (Google Maven is blocked). It has since been built on 5by5; see "Build verification on 5by5" at the end.
 
 ## Fixed in this branch
 
@@ -245,3 +245,23 @@ The web player (`public/`, `server.js`) is outside the Android MVP. These items 
 ## Correction to round 1
 
 1.10 (the "wrong" Eager to be Healthy feed URL) was itself partly wrong. The Riverside feed's own `atom:link rel="self"` is `https://api.riverside.com/hosting/drlxDc7x.rss`, which is what the app uses now.
+
+---
+
+# Build verification on 5by5 (October 26, 2026)
+
+This branch at `7019440` was built on 5by5 from a separate copy of the project, using Android Studio's bundled JDK, the installed Android SDK, and the existing Gradle cache (`./gradlew --offline`). Gradle and dependency versions are the same ones Android Studio already uses there.
+
+| Check | Result |
+|---|---|
+| `testDebugUnitTest` | **56 of 56 pass**, none failed or skipped. That includes `SyncManagerTest` (8) and `LiveSessionManagerTest` (2), the Robolectric suites that couldn't run in the cloud, and all 14 `PlaybackCoordinatorTest` cases for the R2.1 recovery fix. |
+| `assembleDebug` | Builds cleanly with no compile errors. The debug APK is 24 MB. |
+| `MigrationTest` (instrumented) | **Not run.** `androidx.test.ext:junit` and `espresso-core` aren't in 5by5's Gradle cache, the offline build couldn't fetch them, and the test needs a device anyway. |
+
+The other per-suite results: QueueEngine 8, FeedParser 5, FeedUrl/EpisodeId 5, V4V split math 6, boostagram payload 3, TranscriptParser 3, OPML exporter 2.
+
+## Still needed before testers
+
+1. In Android Studio, install this branch on a phone with **Run**, so it's signed with the usual debug key and keeps existing app data.
+2. Run `MigrationTest` on that device. Studio will download the two test libraries.
+3. Test interruptions by hand: a phone call, a navigation prompt, and a Bluetooth disconnect and reconnect, both in the car and on the phone. Playback should resume on its own, and the episode should stay in the queue rather than being dismissed.
