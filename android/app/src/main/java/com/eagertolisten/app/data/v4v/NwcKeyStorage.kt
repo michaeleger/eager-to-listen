@@ -54,27 +54,22 @@ class NwcKeyStorage(private val context: Context) {
                 null
             }
 
-            if (key != null) {
-                val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(Cipher.ENCRYPT_MODE, key)
-                val iv = cipher.iv
-                val encrypted = cipher.doFinal(connection.secret.toByteArray(Charsets.UTF_8))
+            // Never fall back to storing the wallet secret in plain text: without a Keystore key the
+            // save fails and Settings reports it, so the user can retry or skip the wallet
+            if (key == null) return false
 
-                prefs.edit()
-                    .putString(PREF_WALLET_PUBKEY, connection.walletPubkey)
-                    .putString(PREF_RELAY_URL, connection.relayUrl)
-                    .putString(PREF_LUD16, connection.lud16)
-                    .putString(PREF_ENCRYPTED_SECRET, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                    .putString(PREF_IV, Base64.encodeToString(iv, Base64.NO_WRAP))
-                    .apply()
-            } else {
-                prefs.edit()
-                    .putString(PREF_WALLET_PUBKEY, connection.walletPubkey)
-                    .putString(PREF_RELAY_URL, connection.relayUrl)
-                    .putString(PREF_LUD16, connection.lud16)
-                    .putString(PREF_ENCRYPTED_SECRET, connection.secret)
-                    .apply()
-            }
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val iv = cipher.iv
+            val encrypted = cipher.doFinal(connection.secret.toByteArray(Charsets.UTF_8))
+
+            prefs.edit()
+                .putString(PREF_WALLET_PUBKEY, connection.walletPubkey)
+                .putString(PREF_RELAY_URL, connection.relayUrl)
+                .putString(PREF_LUD16, connection.lud16)
+                .putString(PREF_ENCRYPTED_SECRET, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(PREF_IV, Base64.encodeToString(iv, Base64.NO_WRAP))
+                .apply()
             true
         } catch (e: Exception) {
             false
@@ -86,23 +81,28 @@ class NwcKeyStorage(private val context: Context) {
         val relay = prefs.getString(PREF_RELAY_URL, null) ?: return null
         val lud16 = prefs.getString(PREF_LUD16, null)
         val encSecret = prefs.getString(PREF_ENCRYPTED_SECRET, null) ?: return null
-        val ivString = prefs.getString(PREF_IV, null)
+        // No IV means a plain-text secret written by an older build: erase it and ask to reconnect
+        val ivString = prefs.getString(PREF_IV, null) ?: run {
+            clearConnection()
+            return null
+        }
 
-        val secret = if (ivString != null) {
-            try {
-                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-                val entry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry ?: return null
-                val cipher = Cipher.getInstance(TRANSFORMATION)
-                val iv = Base64.decode(ivString, Base64.NO_WRAP)
-                val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-                cipher.init(Cipher.DECRYPT_MODE, entry.secretKey, spec)
-                val decrypted = cipher.doFinal(Base64.decode(encSecret, Base64.NO_WRAP))
-                String(decrypted, Charsets.UTF_8)
-            } catch (_: Exception) {
-                return null
-            }
-        } else {
-            encSecret
+        // A lost or invalidated Keystore key (device reset, restore to a new phone, lock-screen
+        // change) makes the secret unreadable. Clear it so Settings shows "not connected" and the
+        // user pastes the connection string again; funds stay in their wallet either way.
+        val secret = try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val entry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+                ?: throw IllegalStateException("Keystore key missing")
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            val iv = Base64.decode(ivString, Base64.NO_WRAP)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
+            cipher.init(Cipher.DECRYPT_MODE, entry.secretKey, spec)
+            val decrypted = cipher.doFinal(Base64.decode(encSecret, Base64.NO_WRAP))
+            String(decrypted, Charsets.UTF_8)
+        } catch (_: Exception) {
+            clearConnection()
+            return null
         }
 
         return NwcConnection(pubkey, relay, secret, lud16)

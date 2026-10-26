@@ -152,7 +152,7 @@
         <span>🎧</span> Eager to Listen
       </div>
       <h1>Privacy Policy</h1>
-      <div class="last-updated">Effective Date: October 15, 2026</div>
+      <div class="last-updated">Effective Date: October 26, 2026</div>
     </div>
 
     <div class="card">
@@ -171,9 +171,9 @@
         All application state is stored locally on your device in a secure SQLite database:
       </p>
       <ul>
-        <li><strong>Subscriptions & Queue:</strong> Your subscribed podcast RSS feeds, pending playback queues, and episode ratings remain stored exclusively on your device.</li>
+        <li><strong>Subscriptions & Queue:</strong> Your subscribed podcast RSS feeds and playback queue are stored on your device, and only leave it if you turn on Google Drive sync (section 6).</li>
         <li><strong>Listening Progress:</strong> Playback timestamps and resume positions are recorded locally to resume podcasts seamlessly.</li>
-        <li><strong>Inspiration Bookmarks:</strong> Personal audio clips and notes captured during playback stay on your device unless you explicitly export or share them.</li>
+        <li><strong>Inspiration Bookmarks:</strong> Timestamps and notes you capture during playback stay on your device unless you export or share them, or turn on Google Drive sync (section 6).</li>
         <li><strong>Data Erasure:</strong> You can wipe all data at any time by clearing application storage in Android Settings or by uninstalling the application.</li>
       </ul>
     </div>
@@ -216,14 +216,14 @@
         When you stream or download a podcast, the application connects directly to the audio host designated by the podcast publisher's RSS feed (e.g., Megaphone, Libsyn, Omny, Buzzsprout). These requests are direct client-to-server HTTP audio requests standard to all open podcast players.
       </p>
       <p>
-        If you search for new podcasts, queries are resolved via the open <strong>Podcast Index</strong> API. No identifying personal account information is transmitted.
+        If you search for new podcasts, your search terms are sent to Apple's <strong>iTunes Search API</strong>, or to the open <strong>Podcast Index</strong> API if you enter your own Podcast Index keys in Settings. Like any web request, these include your IP address; no account information is sent.
       </p>
     </div>
 
     <div class="card">
       <h2>6. Optional Cloud Sync</h2>
       <p>
-        If you voluntarily choose to enable Google Drive Backup in the application settings, the app will upload an encrypted backup of your subscriptions and queue to your personal Google Drive storage. This data is private to your Google account and is never accessible to us.
+        If you voluntarily choose to enable Google Drive Backup in the application settings, the app saves a sync file to a Google Drive folder you choose. It contains your subscriptions, per-show settings, listening progress, queue, and Inspiration notes. The app does not encrypt this file; it is protected by your Google account like your other Drive files, and it is never sent to us.
       </p>
     </div>
 
