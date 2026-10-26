@@ -209,12 +209,83 @@ class PlaybackCoordinatorTest {
             coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, 4)
         )
         assertEquals(
-            ErrorResolution.MAX_NETWORK_RETRIES_REACHED,
-            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, 5)
+            ErrorResolution.RETRY_NETWORK,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackCoordinator.MAX_NETWORK_RETRIES - 1)
+        )
+        assertEquals(
+            ErrorResolution.MAX_RETRIES_REACHED,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackCoordinator.MAX_NETWORK_RETRIES)
         )
         assertEquals(
             ErrorResolution.DISMISS_UNPLAYABLE,
-            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0)
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0, httpStatus = 404)
         )
+    }
+
+    @Test
+    fun classifyError_audioDeviceErrorsRetryAndNeverDismiss() {
+        // Audio focus / route changes (calls, nav prompts, Bluetooth hops) surface as AudioTrack errors
+        assertEquals(
+            ErrorResolution.RETRY_AUDIO_DEVICE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, 0)
+        )
+        assertEquals(
+            ErrorResolution.RETRY_AUDIO_DEVICE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED, 3)
+        )
+        assertEquals(
+            ErrorResolution.RETRY_AUDIO_DEVICE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, 0)
+        )
+        assertEquals(
+            ErrorResolution.MAX_RETRIES_REACHED,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackCoordinator.MAX_AUDIO_DEVICE_RETRIES)
+        )
+    }
+
+    @Test
+    fun classifyError_transientHttpAndUnknownErrorsRetry() {
+        assertEquals(
+            ErrorResolution.RETRY_NETWORK,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0, httpStatus = 503)
+        )
+        assertEquals(
+            ErrorResolution.RETRY_NETWORK,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0, httpStatus = 429)
+        )
+        assertEquals(
+            ErrorResolution.RETRY_NETWORK,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_UNSPECIFIED, 0)
+        )
+        assertEquals(
+            ErrorResolution.RETRY_NETWORK,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_TIMEOUT, 0)
+        )
+    }
+
+    @Test
+    fun classifyError_permanentErrorsDismiss() {
+        assertEquals(
+            ErrorResolution.DISMISS_UNPLAYABLE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0, httpStatus = 410)
+        )
+        assertEquals(
+            ErrorResolution.DISMISS_UNPLAYABLE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, 0)
+        )
+        assertEquals(
+            ErrorResolution.DISMISS_UNPLAYABLE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, 0)
+        )
+    }
+
+    @Test
+    fun retryDelay_backsOffAndCaps() {
+        assertEquals(2_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 1))
+        assertEquals(16_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 4))
+        assertEquals(30_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 5))
+        assertEquals(30_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 19))
+        assertEquals(1_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 1))
+        assertEquals(5_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 9))
     }
 }

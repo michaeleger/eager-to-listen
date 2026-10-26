@@ -29,6 +29,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
@@ -77,6 +78,7 @@ class PlaybackService : MediaLibraryService() {
 
     private var networkRetryCount = 0
     private var currentErrorEpisodeId: String? = null
+    private var errorRetryJob: Job? = null
     private var eofReconnectCount = 0
     private var currentEofEpisodeId: String? = null
     private var hasPrefetchedUpcomingNews = false
@@ -202,6 +204,10 @@ class PlaybackService : MediaLibraryService() {
                 if (rawPlayer.currentMediaItem == null) {
                     loadAndPlayTopQueueItem()
                 } else {
+                    // After an error (e.g. retries exhausted) the player is idle; re-prepare so play resumes
+                    if (rawPlayer.playbackState == Player.STATE_IDLE) {
+                        rawPlayer.prepare()
+                    }
                     super.play()
                 }
             }
@@ -391,16 +397,21 @@ class PlaybackService : MediaLibraryService() {
                         networkRetryCount = 0
                     }
 
-                    when (val resolution = coordinator.classifyError(error.errorCode, networkRetryCount)) {
-                        ErrorResolution.RETRY_NETWORK -> {
+                    val httpStatus = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+                    when (val resolution = coordinator.classifyError(error.errorCode, networkRetryCount, httpStatus)) {
+                        ErrorResolution.RETRY_NETWORK,
+                        ErrorResolution.RETRY_AUDIO_DEVICE -> {
                             networkRetryCount++
-                            val backoffMs = (1L shl networkRetryCount) * 1000L // 2s, 4s, 8s, 16s, 32s
-                            android.util.Log.w("PlaybackService", "Network error (${error.errorCodeName}). Attempting retry $networkRetryCount/5 after ${backoffMs}ms")
+                            val backoffMs = coordinator.retryDelayMs(resolution, networkRetryCount)
+                            android.util.Log.w("PlaybackService", "Recoverable error (${error.errorCodeName}, $resolution). Retry $networkRetryCount after ${backoffMs}ms")
                             persistCurrentProgress()
-                            serviceScope.launch(Dispatchers.Main) {
+                            errorRetryJob?.cancel()
+                            errorRetryJob = serviceScope.launch(Dispatchers.Main) {
                                 PlaybackStateManager.setBuffering(true)
                                 delay(backoffMs)
-                                if (isActive) {
+                                // Respect a pause or episode change the listener made during the backoff
+                                val stillCurrent = PlaybackStateManager.state.value.currentEpisode?.id == currentEp.id
+                                if (isActive && stillCurrent && player.playWhenReady) {
                                     try {
                                         player.prepare()
                                         player.play()
@@ -411,16 +422,31 @@ class PlaybackService : MediaLibraryService() {
                                 }
                             }
                         }
-                        ErrorResolution.MAX_NETWORK_RETRIES_REACHED -> {
-                            android.util.Log.e("PlaybackService", "Max network retries reached for ${currentEp.title}. Pausing playback.")
+                        ErrorResolution.MAX_RETRIES_REACHED -> {
+                            android.util.Log.e("PlaybackService", "Max retries reached for ${currentEp.title} (${error.errorCodeName}). Pausing playback.")
                             persistCurrentProgress()
                             player.pause()
                             PlaybackStateManager.setBuffering(false)
-                            Toast.makeText(applicationContext, "Network unavailable, tap to retry", Toast.LENGTH_LONG).show()
+                            Toast.makeText(applicationContext, "Playback interrupted, tap play to retry", Toast.LENGTH_LONG).show()
                         }
                         ErrorResolution.DISMISS_UNPLAYABLE -> {
                             persistCurrentProgress()
+                            // Decide from the URI that actually failed: the download row may already be
+                            // cleared (finishing at 98% deletes the file while the tail is still playing)
+                            val failedLocalFile = player.currentMediaItem?.localConfiguration?.uri?.scheme == "file"
                             serviceScope.launch(Dispatchers.IO) {
+                                // A bad or missing local download is not a bad episode: drop it and stream instead
+                                if (failedLocalFile) {
+                                    android.util.Log.w("PlaybackService", "Local file failed (${error.errorCodeName}); falling back to streaming for ${currentEp.title}")
+                                    try {
+                                        com.eagertolisten.app.data.download.PodcastDownloadManager(applicationContext).deleteDownloadedEpisode(currentEp.id)
+                                    } catch (_: Exception) {}
+                                    withContext(Dispatchers.Main) {
+                                        loadAndPlayEpisode(currentEp.id, currentEp.podcastId)
+                                    }
+                                    return@launch
+                                }
+
                                 var refreshedEp: Episode? = null
                                 try {
                                     repository.refreshFeed(currentEp.podcastId)
@@ -753,6 +779,11 @@ class PlaybackService : MediaLibraryService() {
 
                 // Periodically persist playback progress every 10 seconds (20 ticks)
                 tickCount++
+                // 30 seconds of uninterrupted playback means the last error has recovered;
+                // give the next interruption (call, tunnel, Bluetooth hop) a fresh retry budget
+                if (tickCount == 60) {
+                    networkRetryCount = 0
+                }
                 if (tickCount % 20 == 0) {
                     persistCurrentProgress()
                 }
