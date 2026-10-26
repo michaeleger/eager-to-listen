@@ -191,7 +191,7 @@ Most of what round 1 asked for is genuinely fixed: finished episodes are marked 
 
 - **Gemini's unit tests:** I ran all 46 pure-JVM tests in a standalone Kotlin harness (Maven Central, with compile-only stubs for Room annotations, Media3 error codes, and `android.util.Xml`). All 46 pass, across QueueEngine, FeedParser, TranscriptParser, PlaybackCoordinator, V4V split math, boostagram payloads, the OPML exporter, and FeedUrl/EpisodeId. `SyncManagerTest`, `LiveSessionManagerTest` (Robolectric), and `MigrationTest` (device) couldn't run here.
 - **Migration 5→6:** I built the v6 schema from `schemas/…/6.json` in SQLite next to the tables the migration's own SQL creates. Columns, types, nullability, primary keys, foreign keys, and indexes match for all five tables, so Room's post-migration validation should pass. The data remap itself (ID canonicalization) is only covered by the device-only `MigrationTest`. **Run it on a device before shipping**, because it touches every install.
-- **Web player tests:** still 23 of 26 (the Riverside plain-text transcript tests). Not fixed.
+- **Web player tests:** still 23 of 26. The web player is out of MVP scope, so this is deferred (see below).
 - The Android app as a whole still can't be built here (Google Maven is blocked).
 
 ## Fixed in this branch
@@ -227,11 +227,20 @@ The fix:
 | R2.5 | `data/download/PodcastDownloadManager.kt:157-210` | Partial downloads resume with `Range` but no `If-Range`/ETag check. Hosts with dynamic ad insertion (Megaphone, Art19, Acast, Omny) serve different bytes per request, so a resumed file can be corrupt. R2.1 now streams instead of dismissing when that happens, but the resume should still be validated. |
 | R2.6 | `domain/QueueEngine.kt:101-124` | **Behavior change to confirm:** Evergreen now plays new releases newest-first and then the back catalog **oldest-first**, so subscribing to a show with 300 episodes queues the newest one and then episode 1. The in-app description was updated to match, so it's intentional, but it's a product decision only you can make. |
 | R2.7 | `data/sync/SyncSerializer.kt:710-730` | Manual queue items have no tombstones. If one device removes a pinned item while another still has it, the next sync puts it back. |
-| R2.8 | `server.js:60-85` | The SSRF check validates only the first DNS lookup. Redirects (up to 5 are followed) and DNS rebinding can still reach internal addresses. Fine on localhost, but don't host it. |
 | R2.9 | `public/privacy-policy.html` | Still says the Drive backup is "**encrypted**" (it's plain JSON), and still doesn't disclose Apple iTunes Search. |
-| R2.10 | `public/transcriptParser.js` | The 3 web tests still fail: speaker turns on consecutive lines get merged into one cue. |
 | R2.11 | docs | README, both website-update files, and ALPHA_TESTERS still contain some round-1 overclaims (word-by-word transcripts, "Certified", WebLN, DoggCatcher). The Eager to be Healthy feed host is `api.riverside.com` in the app (it matches the feed's own self-link) but `api.riverside.fm` in the website copy. Use whichever one resolves, in both places. |
 | R2.12 | `PlaybackService.kt` `markEpisodeFinished` path | Every 10 s save at ≥98% calls `markEpisodeFinished`, which rebuilds the queue, runs Drive sync, and enqueues downloads each time. It also deletes the local file while the last 2% is still playing. Harmless now that R2.1 falls back to streaming, but it's wasted work. Mark finished once, on transition or end. |
+
+## Deferred: web player (not in the MVP)
+
+The web player (`public/`, `server.js`) is outside the Android MVP. These items wait for the desktop work:
+
+| # | Where | Issue |
+|---|---|---|
+| R2.8 | `server.js:60-85` | The SSRF check validates only the first DNS lookup. Redirects (up to 5 are followed) and DNS rebinding can still reach internal addresses. Fine on localhost, but don't host it. |
+| R2.10 | `public/transcriptParser.js` | 3 web tests fail: speaker turns on consecutive lines get merged into one cue. |
+
+**Desktop and mobile sync, later:** the Android sync format (`SyncSerializer`, v2 JSON in the Drive folder) is what the desktop client should read and write, rather than a second format. Fix R2.7 (no tombstones for manual queue items) before then, because a second client makes reappearing items more likely. `privacy-policy.html` lives in `public/` but is part of the Android Play listing, so R2.9 stays in scope.
 
 ## Correction to round 1
 
