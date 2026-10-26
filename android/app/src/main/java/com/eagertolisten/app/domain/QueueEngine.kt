@@ -14,7 +14,7 @@ data class EngineFeed(
     val lastTurnAt: Long, // max(completedAt, skippedAt) across the feed's episodes
     val subscribedAt: Long,
     // Newest publishedAt among this feed's COMPLETED episodes; 0 if none heard yet.
-    // Drives Evergreen's "new release vs back catalog" split (3.4).
+    // Not used for ordering since Evergreen went back to newest-first; kept for a future variant.
     val heardHighWaterMark: Long
 )
 
@@ -92,36 +92,15 @@ fun buildQueue(
         val (nonSkipped, skipped) = unplacedForFeed.partition { it.skippedAt == null }
 
         val nonSkippedOrdered = when (feed.strategy) {
-            PlayOrderStrategy.REVERSE_CHRONOLOGICAL -> {
+            // Evergreen: newest unplayed first, then the next newest, working back through the
+            // catalog (the order the Feed Customizer promises). New releases land on top because
+            // they are the newest. The back catalog never restarts from episode 1.
+            PlayOrderStrategy.REVERSE_CHRONOLOGICAL,
+            PlayOrderStrategy.EVERGREEN -> {
                 nonSkipped.sortedWith(
                     compareByDescending<EngineEpisode> { it.publishedAt }
                         .thenBy { it.feedOrder }
                 )
-            }
-            PlayOrderStrategy.EVERGREEN -> {
-                if (feed.heardHighWaterMark > 0L) {
-                    val newReleases = nonSkipped
-                        .filter { it.publishedAt > feed.heardHighWaterMark }
-                        .sortedWith(compareByDescending<EngineEpisode> { it.publishedAt }.thenBy { it.feedOrder })
-                    val backCatalog = nonSkipped
-                        .filter { it.publishedAt <= feed.heardHighWaterMark }
-                        .sortedWith(compareBy<EngineEpisode> { it.publishedAt }.thenByDescending { it.feedOrder })
-                    newReleases + backCatalog
-                } else {
-                    // Nothing heard yet: the single newest non-skipped episode counts as new release
-                    if (nonSkipped.isNotEmpty()) {
-                        val sortedDesc = nonSkipped.sortedWith(
-                            compareByDescending<EngineEpisode> { it.publishedAt }.thenBy { it.feedOrder }
-                        )
-                        val newest = sortedDesc.first()
-                        val remaining = sortedDesc.drop(1).sortedWith(
-                            compareBy<EngineEpisode> { it.publishedAt }.thenByDescending { it.feedOrder }
-                        )
-                        listOf(newest) + remaining
-                    } else {
-                        emptyList()
-                    }
-                }
             }
             PlayOrderStrategy.CHRONOLOGICAL -> {
                 nonSkipped.sortedWith(

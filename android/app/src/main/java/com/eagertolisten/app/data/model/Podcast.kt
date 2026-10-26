@@ -45,6 +45,6 @@ enum class PlayOrderStrategy(val displayName: String, val description: String) {
     CHRONOLOGICAL("Chronological", "Serial stories & courses (oldest unplayed first)"),
     REVERSE_CHRONOLOGICAL("Reverse Chronological", "Always the newest unplayed episode"),
     NEWS("News", "Updates first, last X unplayed days in chronological order"),
-    EVERGREEN("Evergreen / Knowledge", "Evergreen: newest episode first when there's something new; otherwise continue the back catalog from the oldest unplayed episode.")
+    EVERGREEN("Evergreen / Knowledge", "Newest unplayed episode first, then next newest unplayed")
 }
 

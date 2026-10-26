@@ -3,7 +3,6 @@ package com.eagertolisten.app.domain
 import com.eagertolisten.app.data.model.PlayOrderStrategy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -127,24 +126,24 @@ class QueueEngineTest {
             createEpisode("e$i", "F", publishedAt = i * 100L, feedOrder = 10 - i)
         }
 
-        // Scenario 3a: EVERGREEN, nothing heard -> e10, e1, e2, ..., e9
+        // Scenario 3a: EVERGREEN, nothing heard -> newest first, then next newest: e10, e9, ..., e1
         val feedEvergreenFresh = createFeed("F", strategy = PlayOrderStrategy.EVERGREEN, heardHighWaterMark = 0L, maxInQueue = 50, consecutiveLimit = 50)
         val q3a = buildQueue(listOf(feedEvergreenFresh), catalogEpisodes(), emptyList(), null, now, 50, 3)
-        assertEquals(listOf("e10", "e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9"), q3a)
+        assertEquals(listOf("e10", "e9", "e8", "e7", "e6", "e5", "e4", "e3", "e2", "e1"), q3a)
 
         // Scenario 3b: EVERGREEN, e10, e8, e5 completed (highWaterMark = e10 = 1000L)
-        // Eligible unplayed: e1, e2, e3, e4, e6, e7, e9 (no new releases > 1000L) -> back catalog oldest first: e1, e2, e3, e4, e6, e7, e9
+        // Eligible unplayed: e1, e2, e3, e4, e6, e7, e9 -> continue back through the catalog, never restarting at e1
         val feedEvergreenHeard = createFeed("F", strategy = PlayOrderStrategy.EVERGREEN, heardHighWaterMark = 1000L, maxInQueue = 50, consecutiveLimit = 50)
         val episodesWithHeard = catalogEpisodes().map {
             if (it.id in listOf("e10", "e8", "e5")) it.copy(isCompleted = true) else it
         }
         val q3b = buildQueue(listOf(feedEvergreenHeard), episodesWithHeard, emptyList(), null, now, 50, 3)
-        assertEquals(listOf("e1", "e2", "e3", "e4", "e6", "e7", "e9"), q3b)
+        assertEquals(listOf("e9", "e7", "e6", "e4", "e3", "e2", "e1"), q3b)
 
-        // Scenario 3c: Same state, then new release e11 arrives (pubDate = 1100 > 1000L)
+        // Scenario 3c: Same state, then new release e11 arrives: it goes on top, back catalog continues
         val e11 = createEpisode("e11", "F", publishedAt = 1100L, feedOrder = 0)
         val q3c = buildQueue(listOf(feedEvergreenHeard), episodesWithHeard + e11, emptyList(), null, now, 50, 3)
-        assertEquals(listOf("e11", "e1", "e2", "e3", "e4", "e6", "e7", "e9"), q3c)
+        assertEquals(listOf("e11", "e9", "e7", "e6", "e4", "e3", "e2", "e1"), q3c)
 
         // Scenario 3d: REVERSE_CHRONOLOGICAL, e10, e8, e5 completed -> e9, e7, e6, e4, e3, e2, e1
         val feedRevChrono = createFeed("F", strategy = PlayOrderStrategy.REVERSE_CHRONOLOGICAL, maxInQueue = 50, consecutiveLimit = 50)
@@ -156,13 +155,12 @@ class QueueEngineTest {
         val q3e = buildQueue(listOf(feedChrono), episodesWithHeard + e11, emptyList(), null, now, 50, 3)
         assertEquals(listOf("e1", "e2", "e3", "e4", "e6", "e7", "e9", "e11"), q3e)
 
-        // Assert EVERGREEN and REVERSE_CHRONOLOGICAL outputs differ for the same input
-        assertNotEquals("EVERGREEN and REVERSE_CHRONOLOGICAL must produce different orders", q3b, q3d)
+        // EVERGREEN uses the same newest-first order as REVERSE_CHRONOLOGICAL
+        assertEquals(q3d, q3b)
 
         // Scenario 3f: Skips in EVERGREEN (nothing heard, e10 skipped once, e1 skipped twice)
-        // Non-skipped: e2..e9. e9 is newest non-skipped -> counts as new release. Back catalog: e2..e8.
-        // Skipped: e10 (skipCount=1), e1 (skipCount=2).
-        // Result: e9, e2, e3, e4, e5, e6, e7, e8, e10, e1
+        // Non-skipped newest first: e9..e2. Skipped go last by skip count: e10 (1), e1 (2).
+        // Result: e9, e8, e7, e6, e5, e4, e3, e2, e10, e1
         val episodesWithSkips = catalogEpisodes().map {
             when (it.id) {
                 "e10" -> it.copy(skippedAt = 500L, skipCount = 1)
@@ -171,7 +169,7 @@ class QueueEngineTest {
             }
         }
         val q3f = buildQueue(listOf(feedEvergreenFresh), episodesWithSkips, emptyList(), null, now, 50, 3)
-        assertEquals(listOf("e9", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e10", "e1"), q3f)
+        assertEquals(listOf("e9", "e8", "e7", "e6", "e5", "e4", "e3", "e2", "e10", "e1"), q3f)
 
         // Scenario 3g: Skip rotation fairness: feeds A and B, equal priority. A's episode was just skipped.
         // A has lastTurnAt = 1000L. B has lastTurnAt = 0L. B must take turn before A!
@@ -245,12 +243,11 @@ class QueueEngineTest {
             defaultNewsDays = 3
         )
 
-        // In Evergreen with nothing heard, e3 is the newest release so it comes first,
-        // followed by oldest back catalog e1. e2 is capped by maxInQueue = 2.
+        // Evergreen plays newest first, then next newest: e3, e2. e1 is capped by maxInQueue = 2.
         assertEquals(3, queue.size)
         assertEquals("pin", queue[0])
-        assertEquals(listOf("pin", "e3", "e1"), queue)
-        assertFalse("e2 should be capped by maxInQueue = 2", queue.contains("e2"))
+        assertEquals(listOf("pin", "e3", "e2"), queue)
+        assertFalse("e1 should be capped by maxInQueue = 2", queue.contains("e1"))
     }
 
     @Test
