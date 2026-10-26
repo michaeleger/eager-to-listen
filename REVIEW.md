@@ -176,3 +176,63 @@ The website copy is the part you're about to publish. Here is each claim checked
 5. Clean up the repo (§4).
 
 The remaining claims (Android Auto behavior, voice search, live streams) need a real device and car head unit to verify, and none of that can be checked from this review.
+
+---
+
+# Round 2: Gemini's fixes (`7758d76`…`d293ce7` on `main`)
+
+**Reviewed:** the 15 commits Gemini pushed after round 1 (phases 0.1–10.1 plus three follow-ups), October 26, 2026.
+
+## Verdict
+
+Most of what round 1 asked for is genuinely fixed: finished episodes are marked played, imports no longer wipe history, show-type guessing uses whole words, expired news is hidden rather than marked played, manual queue items survive rebuilds, the next migration is safe, and downloads wait for Wi-Fi. There are real unit tests now. However, **the rewrite introduced a playback regression** (fixed in this branch, below), and **the new Lightning wallet (NWC) client cannot work**.
+
+## Verification
+
+- **Gemini's unit tests:** I ran all 46 pure-JVM tests in a standalone Kotlin harness (Maven Central, with compile-only stubs for Room annotations, Media3 error codes, and `android.util.Xml`). All 46 pass, across QueueEngine, FeedParser, TranscriptParser, PlaybackCoordinator, V4V split math, boostagram payloads, the OPML exporter, and FeedUrl/EpisodeId. `SyncManagerTest`, `LiveSessionManagerTest` (Robolectric), and `MigrationTest` (device) couldn't run here.
+- **Migration 5→6:** I built the v6 schema from `schemas/…/6.json` in SQLite next to the tables the migration's own SQL creates. Columns, types, nullability, primary keys, foreign keys, and indexes match for all five tables, so Room's post-migration validation should pass. The data remap itself (ID canonicalization) is only covered by the device-only `MigrationTest`. **Run it on a device before shipping**, because it touches every install.
+- **Web player tests:** still 23 of 26 (the Riverside plain-text transcript tests). Not fixed.
+- The Android app as a whole still can't be built here (Google Maven is blocked).
+
+## Fixed in this branch
+
+### R2.1 Playback no longer recovered from audio interruptions (the regression you noticed)
+`service/PlaybackCoordinator.kt`, `service/PlaybackService.kt` (commit `4f542f1`)
+
+Neither the original nor the new code has explicit audio-focus code; both let ExoPlayer handle focus (`setAudioAttributes(…, true)`). The recovery came from the original `onPlayerError`, which retried **every** non-live error (prepare and play again every 2.5 s). Phone calls, navigation prompts, and Bluetooth or car audio route changes often surface as AudioTrack or decoder-init errors, and that blanket retry carried playback through them.
+
+Phase 2.1 replaced it with a classifier that retried only three network error codes. Everything else went to `DISMISS_UNPLAYABLE`, which marks the episode **dismissed** (hidden from the queue, and the dismissal syncs to other devices), removes it, and skips to the next one. Network retries also stopped after 5 tries (about 1 minute), so a tunnel or dead zone left playback paused.
+
+The fix:
+- **Audio-device errors** (AudioTrack 5xxx, decoder init/query) retry with a short backoff and **never dismiss**.
+- **Only known-permanent errors dismiss:** HTTP 4xx except 408/429, parsing, unsupported format, decoding, file not found, no permission. Unknown errors retry, the way the original did.
+- **Network retries** back off up to a 30 s cap for about 8.5 minutes before pausing.
+- **The retry budget resets** after 30 s of healthy playback.
+- **Retries respect the listener:** a pause or an episode change during the backoff cancels the retry, and stacked retries collapse into one.
+- **A failing local download falls back to streaming** instead of dismissing the episode. This is decided from the URI that actually failed, because finishing at 98% deletes the file while the tail is still playing.
+- **`play()` re-prepares an idle player**, so "tap play to retry" works after the retries give up.
+- **Five new unit tests** cover the classification and backoff. All 14 coordinator tests pass.
+
+**Still needs a device test:** a phone call, a navigation prompt, and a Bluetooth disconnect/reconnect, both in the car and on the phone.
+
+### R2.2 Stale comments
+`PlaybackService.kt` still said steering-wheel Next/Previous perform +90 s / −15 s. Corrected (commit `8f45650`).
+
+## Still open
+
+| # | Where | Issue |
+|---|---|---|
+| R2.3 | `data/v4v/NwcClient.kt:86-180` | **The NWC client can't work.** NIP-47 needs a signed Nostr event: `id` = sha256 of the serialized event, `pubkey` = the *client* key derived from the connection secret, and a Schnorr `sig`, with `content` NIP-04-encrypted to the wallet. This code sends a random UUID as the `id`, the *wallet's* pubkey as the sender, no signature, and plain-text JSON. The secret is never used. Relays and wallets will reject the request, and every boost will time out after 30 s. The wallet's (encrypted) reply also wouldn't parse. The feature flag keeps it out of release builds, but it's **on in debug builds**, which is what gets sideloaded to testers. Either implement it with a secp256k1/NIP-04 library or remove the UI. The ADR's "encrypted Nostr relay connection" claim is false today. |
+| R2.4 | `data/v4v/NwcKeyStorage.kt:70-76` | If the Keystore fails, the wallet secret is saved in **plain text**. It should fail instead. (It is excluded from backups, which is good.) |
+| R2.5 | `data/download/PodcastDownloadManager.kt:157-210` | Partial downloads resume with `Range` but no `If-Range`/ETag check. Hosts with dynamic ad insertion (Megaphone, Art19, Acast, Omny) serve different bytes per request, so a resumed file can be corrupt. R2.1 now streams instead of dismissing when that happens, but the resume should still be validated. |
+| R2.6 | `domain/QueueEngine.kt:101-124` | **Behavior change to confirm:** Evergreen now plays new releases newest-first and then the back catalog **oldest-first**, so subscribing to a show with 300 episodes queues the newest one and then episode 1. The in-app description was updated to match, so it's intentional, but it's a product decision only you can make. |
+| R2.7 | `data/sync/SyncSerializer.kt:710-730` | Manual queue items have no tombstones. If one device removes a pinned item while another still has it, the next sync puts it back. |
+| R2.8 | `server.js:60-85` | The SSRF check validates only the first DNS lookup. Redirects (up to 5 are followed) and DNS rebinding can still reach internal addresses. Fine on localhost, but don't host it. |
+| R2.9 | `public/privacy-policy.html` | Still says the Drive backup is "**encrypted**" (it's plain JSON), and still doesn't disclose Apple iTunes Search. |
+| R2.10 | `public/transcriptParser.js` | The 3 web tests still fail: speaker turns on consecutive lines get merged into one cue. |
+| R2.11 | docs | README, both website-update files, and ALPHA_TESTERS still contain some round-1 overclaims (word-by-word transcripts, "Certified", WebLN, DoggCatcher). The Eager to be Healthy feed host is `api.riverside.com` in the app (it matches the feed's own self-link) but `api.riverside.fm` in the website copy. Use whichever one resolves, in both places. |
+| R2.12 | `PlaybackService.kt` `markEpisodeFinished` path | Every 10 s save at ≥98% calls `markEpisodeFinished`, which rebuilds the queue, runs Drive sync, and enqueues downloads each time. It also deletes the local file while the last 2% is still playing. Harmless now that R2.1 falls back to streaming, but it's wasted work. Mark finished once, on transition or end. |
+
+## Correction to round 1
+
+1.10 (the "wrong" Eager to be Healthy feed URL) was itself partly wrong. The Riverside feed's own `atom:link rel="self"` is `https://api.riverside.com/hosting/drlxDc7x.rss`, which is what the app uses now.
