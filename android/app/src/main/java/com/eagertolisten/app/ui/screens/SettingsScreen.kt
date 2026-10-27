@@ -630,9 +630,11 @@ fun SettingsScreen(
                                 scope.launch {
                                     isDownloadingQueue = true
                                     downloadStatusMsg = "Downloading upcoming queue episodes..."
-                                    val count = com.eagertolisten.app.data.download.PodcastDownloadManager(context).performAutoDownloadQueue(autoDownloadHours)
+                                    com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(context)
+                                    kotlinx.coroutines.delay(2000)
+
                                     isDownloadingQueue = false
-                                    downloadStatusMsg = "Download complete: $count new episode(s) cached offline."
+                                    downloadStatusMsg = "Background download service started."
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),

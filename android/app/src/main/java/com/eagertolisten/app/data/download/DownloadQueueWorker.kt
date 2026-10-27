@@ -23,6 +23,10 @@ class DownloadQueueWorker(
         const val NOTIFICATION_ID = 1002
     }
 
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return createForegroundInfo("Preparing download queue...", 0, 0, true)
+    }
+
     override suspend fun doWork(): Result {
         Log.i(TAG, "DownloadQueueWorker started")
         val prefs = applicationContext.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
