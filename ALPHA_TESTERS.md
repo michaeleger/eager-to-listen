@@ -50,7 +50,7 @@ We are opening our **Closed Alpha Testing Program** and looking for passionate l
 ### Option A: Native Android App (Pixel, Samsung, OnePlus, etc.)
 *Supports Android 8.0 (Oreo / API 26) through Android 16.*
 
-1. **Download the Alpha APK (v0.9.0-alpha)**:
+1. **Download the Alpha APK (v0.9.1-alpha)**:
    - Download the latest `app-debug.apk` directly from your tester invite email or install via ADB.
 2. **Enable Unknown Apps**:
    - When opening the APK on your device, allow your browser or file manager permission to *"Install unknown apps"* if prompted.

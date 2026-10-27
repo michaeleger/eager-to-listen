@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.9.1-alpha] - 2026-10-27
+
+### 🔄 In-Car Track Navigation & Audio Interruption Recovery
+- **Dedicated Track Navigation**: Re-mapped on-screen and hardware/steering-wheel Next Track (`>|`) to queue advance and Previous Track (`|<`) to episode restart (>5s) or history rewind (≤5s).
+- **Audio Interruption & Device Recovery**: ExoPlayer error handler retries transient audio-device errors and route changes without dismissing unplayable episodes.
+- **Queue History Navigation**: In-memory playback history queue enables reverse navigation across previous episodes.
+- **Nostr Wallet Connect Security**: Switched NWC credentials to Android Keystore EncryptedSharedPreferences.
+- **Evergreen Queue Strategy Alignment**: Programmed queue now orders Evergreen feeds newest-first followed by next newest.
+
+---
+
 ## [0.9.0-alpha] - 2026-10-24
 
 ### 🚀 Google Play Closed Testing Milestone Release

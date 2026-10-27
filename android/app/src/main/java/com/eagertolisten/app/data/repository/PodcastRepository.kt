@@ -74,7 +74,7 @@ class PodcastRepository(context: Context) {
     }
 
     companion object {
-        const val USER_AGENT = "EagerToListen/0.9.0-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
+        const val USER_AGENT = "EagerToListen/0.9.1-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
         const val ACCEPT_HEADER = "application/rss+xml, application/xml, text/xml, application/atom+xml, text/html;q=0.9, */*;q=0.8"
 
         private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -11,7 +11,7 @@ data class BoostagramPayload(
     val speed: String? = null,
     val action: String = "boost",
     val appName: String = "Eager to Listen",
-    val appVersion: String = "0.9.0-alpha",
+    val appVersion: String = "0.9.1-alpha",
     val message: String? = null,
     val senderName: String? = null,
     val valueMsat: Long,

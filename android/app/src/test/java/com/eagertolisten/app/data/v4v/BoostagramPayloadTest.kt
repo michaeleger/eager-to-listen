@@ -18,7 +18,7 @@ class BoostagramPayloadTest {
             speed = "1.0",
             action = "boost",
             appName = "Eager to Listen",
-            appVersion = "0.9.0-alpha",
+            appVersion = "0.9.1-alpha",
             message = "Great episode, love the local-first focus!",
             senderName = "Alice",
             valueMsat = 5_000_000L,
@@ -35,7 +35,7 @@ class BoostagramPayloadTest {
         assertEquals("1.0", json.getString("speed"))
         assertEquals("boost", json.getString("action"))
         assertEquals("Eager to Listen", json.getString("app_name"))
-        assertEquals("0.9.0-alpha", json.getString("app_version"))
+        assertEquals("0.9.1-alpha", json.getString("app_version"))
         assertEquals("Great episode, love the local-first focus!", json.getString("message"))
         assertEquals("Alice", json.getString("sender_name"))
         assertEquals(5_000_000L, json.getLong("value_msat"))
