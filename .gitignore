@@ -42,6 +42,8 @@ eager_local.db
 *.tar.gz
 *.apk
 *.aab
+*.mp4
+android/app/release/
 public/*.apk
 website_update_package/
 
