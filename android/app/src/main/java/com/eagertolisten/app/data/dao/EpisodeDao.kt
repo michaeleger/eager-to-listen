@@ -146,6 +146,40 @@ interface EpisodeDao {
     """)
     suspend fun markEpisodeFinished(episodeId: String, completedAt: Long = System.currentTimeMillis()): Int
 
+    // Bulk "mark this & older / this & newer as played" for one feed. Uses a WHERE clause rather
+    // than an ID list so feeds with thousands of episodes stay under SQLite's bind-variable limit.
+    @Query("""
+        UPDATE episodes
+        SET isCompleted = 1,
+            completedAt = :completedAt,
+            playbackPositionSeconds = durationSeconds,
+            dismissReason = NULL,
+            updatedAt = :completedAt
+        WHERE podcastId = :podcastId
+          AND isCompleted = 0
+          AND isLive = 0
+          AND publishedAt > 0
+          AND publishedAt <= :publishedAt
+    """)
+    suspend fun markEpisodesPlayedUpTo(podcastId: String, publishedAt: Long, completedAt: Long): Int
+
+    @Query("""
+        UPDATE episodes
+        SET isCompleted = 1,
+            completedAt = :completedAt,
+            playbackPositionSeconds = durationSeconds,
+            dismissReason = NULL,
+            updatedAt = :completedAt
+        WHERE podcastId = :podcastId
+          AND isCompleted = 0
+          AND isLive = 0
+          AND publishedAt >= :publishedAt
+    """)
+    suspend fun markEpisodesPlayedFrom(podcastId: String, publishedAt: Long, completedAt: Long): Int
+
+    @Query("SELECT id FROM episodes WHERE podcastId = :podcastId AND completedAt = :completedAt AND isDownloaded = 1")
+    suspend fun getDownloadedIdsCompletedAt(podcastId: String, completedAt: Long): List<String>
+
     @Query("""
         UPDATE episodes 
         SET skippedAt = :skippedAt,

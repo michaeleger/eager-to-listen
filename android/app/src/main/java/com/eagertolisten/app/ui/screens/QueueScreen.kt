@@ -297,7 +297,10 @@ fun QueueScreen(
                         onRemoveClick = if (filterMode == QueueFilterMode.QUEUE) {
                             { queueViewModel.removeEpisode(ep.id) }
                         } else null,
-                        onDownloadClick = { queueViewModel.toggleEpisodeDownload(ep) }
+                        onDownloadClick = { queueViewModel.toggleEpisodeDownload(ep) },
+                        onSetPlayed = { played -> queueViewModel.setEpisodePlayed(ep, played) },
+                        onMarkThisAndOlderPlayed = { queueViewModel.markFeedEpisodesPlayed(ep, includeOlder = true) },
+                        onMarkThisAndNewerPlayed = { queueViewModel.markFeedEpisodesPlayed(ep, includeOlder = false) }
                     )
                 }
             }

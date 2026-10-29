@@ -225,6 +225,24 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setEpisodePlayed(episode: Episode, played: Boolean) {
+        viewModelScope.launch {
+            repository.setEpisodePlayed(episode.id, played)
+            _userMessage.value = if (played) "Marked as played" else "Marked as unplayed"
+        }
+    }
+
+    fun markFeedEpisodesPlayed(episode: Episode, includeOlder: Boolean) {
+        viewModelScope.launch {
+            val count = repository.markFeedEpisodesPlayed(episode.id, includeOlder)
+            _userMessage.value = when (count) {
+                0 -> "Nothing to mark: those episodes are already played"
+                1 -> "Marked 1 episode as played"
+                else -> "Marked $count episodes as played"
+            }
+        }
+    }
+
     fun toggleEpisodeDownload(episode: Episode) {
         viewModelScope.launch {
             val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(getApplication())

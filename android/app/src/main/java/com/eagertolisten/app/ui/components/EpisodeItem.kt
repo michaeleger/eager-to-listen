@@ -65,6 +65,9 @@ fun EpisodeItem(
     onRemoveClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
     onItemClick: (() -> Unit)? = null,
+    onSetPlayed: ((Boolean) -> Unit)? = null,
+    onMarkThisAndOlderPlayed: (() -> Unit)? = null,
+    onMarkThisAndNewerPlayed: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -299,6 +302,15 @@ fun EpisodeItem(
                             tint = TextMuted
                         )
                     }
+                }
+
+                if (onSetPlayed != null) {
+                    EpisodeOverflowMenu(
+                        isPlayed = episode.isCompleted,
+                        onSetPlayed = onSetPlayed,
+                        onMarkThisAndOlderPlayed = onMarkThisAndOlderPlayed,
+                        onMarkThisAndNewerPlayed = onMarkThisAndNewerPlayed
+                    )
                 }
 
                 IconButton(onClick = onPlayClick) {

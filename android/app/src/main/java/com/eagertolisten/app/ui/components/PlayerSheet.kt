@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,6 +54,8 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.eagertolisten.app.settings.PlayerSettings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -114,6 +119,7 @@ fun PlayerSheet(
 ) {
     val episode = playbackState.currentEpisode ?: return
     val context = LocalContext.current
+    val playerSettings by PlayerSettings.state.collectAsState()
 
     val effectiveFundingUrl = episode.fundingUrl ?: currentPodcast?.customDonationUrl ?: currentPodcast?.fundingUrl
     val effectiveValueJson = episode.valueJson ?: currentPodcast?.valueJson
@@ -137,6 +143,9 @@ fun PlayerSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // The player is drawn edge-to-edge outside the Scaffold, so keep its controls clear
+                // of the status bar, camera cut-out and gesture/navigation bar.
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -454,7 +463,7 @@ fun PlayerSheet(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Audio Controls: Skip Previous, 15s Rewind, Play/Pause, 90s Skip, Skip Next
+                        // Audio Controls: Previous Episode, Rewind, Play/Pause, Forward, Next Episode (skip times from Settings)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -473,24 +482,23 @@ fun PlayerSheet(
                                 )
                             }
 
-                            // 15-second Rewind Button
+                            // Rewind Button (label below the icon so it stays readable)
                             IconButton(
                                 onClick = onSeekBack,
-                                modifier = Modifier.size(54.dp)
+                                modifier = Modifier.size(60.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         imageVector = Icons.Default.Replay,
-                                        contentDescription = "Rewind 15s",
+                                        contentDescription = "Rewind ${playerSettings.seekBackSeconds} seconds",
                                         tint = TextPrimary,
-                                        modifier = Modifier.size(34.dp)
+                                        modifier = Modifier.size(30.dp)
                                     )
                                     Text(
-                                        text = "15",
-                                        fontSize = 10.sp,
+                                        text = "${playerSettings.seekBackSeconds}s",
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = BurntOrange,
-                                        modifier = Modifier.padding(top = 2.dp)
+                                        color = TextPrimary
                                     )
                                 }
                             }
@@ -517,24 +525,23 @@ fun PlayerSheet(
                                 }
                             }
 
-                            // 90-second Forward Skip Button
+                            // Forward Skip Button (label below the icon so it stays readable)
                             IconButton(
                                 onClick = onSeekForward,
-                                modifier = Modifier.size(54.dp)
+                                modifier = Modifier.size(60.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         imageVector = Icons.Default.FastForward,
-                                        contentDescription = "Forward 90s",
+                                        contentDescription = "Forward ${playerSettings.seekForwardSeconds} seconds",
                                         tint = TextPrimary,
-                                        modifier = Modifier.size(34.dp)
+                                        modifier = Modifier.size(30.dp)
                                     )
                                     Text(
-                                        text = "90",
-                                        fontSize = 9.sp,
+                                        text = "${playerSettings.seekForwardSeconds}s",
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = BurntOrange,
-                                        modifier = Modifier.padding(top = 2.dp)
+                                        color = TextPrimary
                                     )
                                 }
                             }
@@ -555,24 +562,26 @@ fun PlayerSheet(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Creator Inspiration Quick Bookmark Button
-                        OutlinedButton(
-                            onClick = {
-                                PlaybackController.saveInspiration("Bookmarked from Player")
-                                android.widget.Toast.makeText(context, "Saved inspiration idea at ${formatTime(currentPosition)}!", android.widget.Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = BurntOrange
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Save Idea / Bookmark", fontSize = 12.sp)
+                        // Creator Inspiration Quick Bookmark Button (can be hidden in Settings > Player Controls)
+                        if (playerSettings.showBookmarkButton) {
+                            OutlinedButton(
+                                onClick = {
+                                    PlaybackController.saveInspiration("Bookmarked from Player")
+                                    android.widget.Toast.makeText(context, "Saved inspiration idea at ${formatTime(currentPosition)}!", android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(20.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = BurntOrange
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Save Idea / Bookmark", fontSize = 12.sp)
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))

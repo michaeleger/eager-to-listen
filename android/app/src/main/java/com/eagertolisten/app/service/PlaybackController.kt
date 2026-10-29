@@ -63,19 +63,29 @@ object PlaybackController {
     }
 
     fun seekBack() {
-        mediaController?.seekBack() // 15 seconds
+        mediaController?.seekBack() // back skip time from Settings (default 15s)
     }
 
     fun seekForward() {
-        mediaController?.seekForward() // 90 seconds
+        mediaController?.seekForward() // forward skip time from Settings (default 90s)
     }
 
+    // The in-app skip buttons always change episodes. They use custom commands rather than
+    // seekToNext()/seekToPrevious(), because those follow the car/headset button setting
+    // (which defaults to jumping within the episode).
     fun skipToNext() {
-        mediaController?.seekToNext()
+        sendCommand(PlaybackService.CUSTOM_ACTION_SKIP_NEXT)
     }
 
     fun skipToPrevious() {
-        mediaController?.seekToPrevious()
+        sendCommand(PlaybackService.CUSTOM_ACTION_SKIP_PREVIOUS)
+    }
+
+    private fun sendCommand(action: String) {
+        mediaController?.sendCustomCommand(
+            androidx.media3.session.SessionCommand(action, android.os.Bundle.EMPTY),
+            android.os.Bundle.EMPTY
+        )
     }
 
     fun saveInspiration(note: String = "") {

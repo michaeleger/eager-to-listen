@@ -55,9 +55,6 @@ class PodcastRepository(context: Context) {
     private val pendingRemoteEpisodeDao = db.pendingRemoteEpisodeDao()
     private val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
 
-    private val rebuildMutex = Mutex()
-    private val rebuildRequestedAfterCurrent = AtomicBoolean(false)
-
     init {
         if (!initCleanupDone) {
             initCleanupDone = true
@@ -74,10 +71,16 @@ class PodcastRepository(context: Context) {
     }
 
     companion object {
-        const val USER_AGENT = "EagerToListen/0.9.1-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
+        const val USER_AGENT = "EagerToListen/0.9.2-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
         const val ACCEPT_HEADER = "application/rss+xml, application/xml, text/xml, application/atom+xml, text/html;q=0.9, */*;q=0.8"
 
         private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        // Process-wide: every ViewModel, worker and service creates its own PodcastRepository,
+        // so these locks have to live here to actually serialize queue rebuilds and feed refreshes.
+        private val rebuildMutex = Mutex()
+        private val rebuildRequestedAfterCurrent = AtomicBoolean(false)
+        private val refreshAllMutex = Mutex()
 
         @Volatile
         private var initCleanupDone = false
@@ -321,6 +324,11 @@ class PodcastRepository(context: Context) {
         } catch (e: Exception) {
             Log.e("EagerRefresh", "Exception refreshing '${podcast.title}': ${e.message}", e)
             Result.failure(e)
+        } catch (e: OutOfMemoryError) {
+            // A very large feed can exhaust the heap while parsing (up to 4 parse at once).
+            // Fail this one feed instead of taking the whole app down.
+            Log.e("EagerRefresh", "Out of memory refreshing '${podcast.title}'", e)
+            Result.failure(Exception("Feed too large to load (out of memory)"))
         }
     }
 
@@ -337,8 +345,23 @@ class PodcastRepository(context: Context) {
     }
 
     suspend fun refreshAllFeeds(): Pair<Int, List<String>> = withContext(Dispatchers.IO) {
+        // One refresh at a time across the app (startup refresh, pull-to-refresh, the 12-hour worker,
+        // "Update Feeds & Backup Now"). A second caller waits for the first to finish.
+        refreshAllMutex.withLock {
+            try {
+                refreshAllFeedsLocked()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Log.e("EagerRefresh", "refreshAllFeeds failed", e)
+                Pair(0, listOf("Refresh failed: ${e.message ?: e.javaClass.simpleName}"))
+            }
+        }
+    }
+
+    private suspend fun refreshAllFeedsLocked(): Pair<Int, List<String>> {
         val podcasts = podcastDao.getAllPodcastsSync()
-        if (podcasts.isEmpty()) return@withContext Pair(0, emptyList())
+        if (podcasts.isEmpty()) return Pair(0, emptyList())
 
         Log.d("EagerRefresh", "refreshAllFeeds started for ${podcasts.size} podcasts")
         var successCount = 0
@@ -366,11 +389,19 @@ class PodcastRepository(context: Context) {
             }
         }
 
-        // Rebuild programmed queue once after all feeds are refreshed
-        generateProgrammedQueue()
+        // Rebuild programmed queue once after all feeds are refreshed. A failure here must not
+        // crash the app: the feeds are already saved, and the next rebuild will catch up.
+        try {
+            generateProgrammedQueue()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("EagerRefresh", "Queue rebuild after refresh failed", e)
+            errors.add("Queue rebuild: ${e.message ?: e.javaClass.simpleName}")
+        }
         Log.d("EagerRefresh", "refreshAllFeeds finished: $successCount succeeded, ${errors.size} failed")
 
-        Pair(successCount, errors)
+        return Pair(successCount, errors)
     }
 
     // Global settings for queue diversity & news
@@ -741,6 +772,46 @@ class PodcastRepository(context: Context) {
         val now = System.currentTimeMillis()
         episodeDao.markEpisodeUnplayed(episodeId, now)
         generateProgrammedQueue()
+    }
+
+    /** Marks one episode played or unplayed (episode overflow menu). */
+    suspend fun setEpisodePlayed(episodeId: String, played: Boolean) {
+        if (played) markEpisodeFinished(episodeId) else markEpisodeUnplayed(episodeId)
+    }
+
+    /**
+     * Marks [episodeId] and every older (or newer) episode in the same feed as played.
+     * Episodes with no publish date are only included when they're the one picked.
+     * Returns how many episodes changed.
+     */
+    suspend fun markFeedEpisodesPlayed(episodeId: String, includeOlder: Boolean): Int = withContext(Dispatchers.IO) {
+        val anchor = episodeDao.getEpisodeByIdSync(episodeId) ?: return@withContext 0
+        val now = System.currentTimeMillis()
+        val changed = db.withTransaction {
+            var count = 0
+            if (!anchor.isCompleted) {
+                count += episodeDao.markEpisodeFinished(anchor.id, now)
+            }
+            if (anchor.publishedAt > 0) {
+                count += if (includeOlder) {
+                    episodeDao.markEpisodesPlayedUpTo(anchor.podcastId, anchor.publishedAt, now)
+                } else {
+                    episodeDao.markEpisodesPlayedFrom(anchor.podcastId, anchor.publishedAt, now)
+                }
+            }
+            queueDao.purgeCompletedFromQueue()
+            count
+        }
+        if (changed > 0) {
+            val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(appContext)
+            for (id in episodeDao.getDownloadedIdsCompletedAt(anchor.podcastId, now)) {
+                try {
+                    downloadMgr.deleteDownloadedEpisode(id)
+                } catch (_: Exception) {}
+            }
+            generateProgrammedQueue()
+        }
+        changed
     }
 
     suspend fun unsubscribe(podcastId: String) = withContext(Dispatchers.IO) {

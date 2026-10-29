@@ -27,6 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.eagertolisten.app.settings.PlayerSettings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +59,7 @@ fun MiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val episode = playbackState.currentEpisode ?: return
+    val playerSettings by PlayerSettings.state.collectAsState()
 
     val progress = if (playbackState.durationMs > 0) {
         (playbackState.currentPositionMs.toFloat() / playbackState.durationMs.toFloat()).coerceIn(0f, 1f)
@@ -149,24 +153,23 @@ fun MiniPlayer(
                     )
                 }
 
-                // 15s Rewind Button
+                // Rewind Button (skip time from Settings; label below the icon)
                 IconButton(
                     onClick = onSeekBack,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.Default.Replay,
-                            contentDescription = "Rewind 15s",
+                            contentDescription = "Rewind ${playerSettings.seekBackSeconds} seconds",
                             tint = TextSecondary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = "15",
-                            fontSize = 8.sp,
+                            text = "${playerSettings.seekBackSeconds}s",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = BurntOrange,
-                            modifier = Modifier.padding(top = 2.dp)
+                            color = TextPrimary
                         )
                     }
                 }
@@ -192,24 +195,23 @@ fun MiniPlayer(
                     }
                 }
 
-                // 90s Forward Skip Button
+                // Forward Skip Button (skip time from Settings; label below the icon)
                 IconButton(
                     onClick = onSeekForward,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.Default.FastForward,
-                            contentDescription = "Forward 90s",
+                            contentDescription = "Forward ${playerSettings.seekForwardSeconds} seconds",
                             tint = TextSecondary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = "90",
-                            fontSize = 7.sp,
+                            text = "${playerSettings.seekForwardSeconds}s",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = BurntOrange,
-                            modifier = Modifier.padding(top = 1.dp)
+                            color = TextPrimary
                         )
                     }
                 }

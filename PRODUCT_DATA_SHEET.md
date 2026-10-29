@@ -105,7 +105,7 @@ Built specifically for safe, frictionless hands-free driving:
 ## 👥 Closed Testing Program & Contact
 
 - **Application Name**: Eager to Listen
-- **Current Version**: v0.9.1-alpha (Build 10)
+- **Current Version**: v0.9.2-alpha (Build 11)
 - **Developer / Creator**: Michael Scott Eger
 - **Direct Contact & Inquiries**: `michael.eger@michaelegerconsulting.com`
 - **Documentation & Guides**: 

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -19,7 +20,9 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -45,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.eagertolisten.app.diagnostics.CrashReporter
 import com.eagertolisten.app.service.PlaybackController
 import com.eagertolisten.app.ui.components.MiniPlayer
 import com.eagertolisten.app.ui.components.PlayerSheet
@@ -105,6 +110,50 @@ class MainActivity : ComponentActivity() {
 
                 val snackbarHostState = remember { SnackbarHostState() }
                 var selectedTab by remember { mutableIntStateOf(0) }
+
+                // System Back (gesture or button) collapses the full-screen player instead of
+                // leaving the app, so nobody gets stuck in it.
+                BackHandler(enabled = isPlayerExpanded && playbackState.currentEpisode != null) {
+                    playerViewModel.setExpanded(false)
+                }
+
+                // If the app crashed last time, offer to email the saved report to the developer.
+                var pendingCrashReport by remember { mutableStateOf(CrashReporter.pendingReport(applicationContext)) }
+                pendingCrashReport?.let { report ->
+                    AlertDialog(
+                        onDismissRequest = {
+                            CrashReporter.markPendingHandled(applicationContext)
+                            pendingCrashReport = null
+                        },
+                        title = { Text("Eager to Listen crashed last time") },
+                        text = {
+                            Text(
+                                "Send the crash report to the developer? It opens your email app with the " +
+                                    "report filled in, so you can read it (and add what you were doing) before you send it. " +
+                                    "You can also send it later from Settings."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                CrashReporter.markPendingHandled(applicationContext)
+                                pendingCrashReport = null
+                                if (!CrashReporter.emailReport(this@MainActivity, report)) {
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "No email app found. Send it to ${CrashReporter.DEVELOPER_EMAIL} from Settings later.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }) { Text("Send", color = BurntOrange) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                CrashReporter.markPendingHandled(applicationContext)
+                                pendingCrashReport = null
+                            }) { Text("Not now", color = TextMuted) }
+                        }
+                    )
+                }
 
                 LaunchedEffect(userMessage) {
                     userMessage?.let {

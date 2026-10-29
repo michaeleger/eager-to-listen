@@ -26,6 +26,9 @@ class EagerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // First, so a crash anywhere after this point is saved for the tester to email in.
+        com.eagertolisten.app.diagnostics.CrashReporter.install(this)
+        com.eagertolisten.app.settings.PlayerSettings.init(this)
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {

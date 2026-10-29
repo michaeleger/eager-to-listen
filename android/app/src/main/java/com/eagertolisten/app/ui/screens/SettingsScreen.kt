@@ -62,6 +62,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eagertolisten.app.data.sync.SyncManager
+import com.eagertolisten.app.diagnostics.CrashReporter
+import com.eagertolisten.app.settings.PlayerSettings
+import com.eagertolisten.app.settings.RemoteButtonAction
 import com.eagertolisten.app.data.sync.SyncStatus
 import com.eagertolisten.app.ui.theme.BurntOrange
 import com.eagertolisten.app.ui.theme.ForestGreenDarkest
@@ -81,6 +84,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val syncState by syncManager.state.collectAsState()
+    val playerSettings by PlayerSettings.state.collectAsState()
     var showSyncSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -255,6 +259,75 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Player Controls Card: skip times, car/headset buttons, Bookmark button
+            Card(
+                colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Text(
+                            text = "Player Controls",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = TextPrimary
+                        )
+                    }
+
+                    Text("Rewind:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = TextPrimary)
+                    SettingChoiceRow(
+                        choices = PlayerSettings.SEEK_CHOICES_SECONDS.map { secs ->
+                            (if (secs == PlayerSettings.DEFAULT_SEEK_BACK_SECONDS) "${secs}s (Def)" else "${secs}s") to secs
+                        },
+                        selected = playerSettings.seekBackSeconds,
+                        onSelect = { PlayerSettings.setSeekBackSeconds(it) }
+                    )
+
+                    Text("Forward:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = TextPrimary)
+                    SettingChoiceRow(
+                        choices = PlayerSettings.SEEK_CHOICES_SECONDS.map { secs ->
+                            (if (secs == PlayerSettings.DEFAULT_SEEK_FORWARD_SECONDS) "${secs}s (Def)" else "${secs}s") to secs
+                        },
+                        selected = playerSettings.seekForwardSeconds,
+                        onSelect = { PlayerSettings.setSeekForwardSeconds(it) }
+                    )
+
+                    Text("Car / headset Next & Previous buttons:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = TextPrimary)
+                    SettingChoiceRow(
+                        choices = listOf(
+                            "Jump ${playerSettings.seekForwardSeconds}s / ${playerSettings.seekBackSeconds}s (Def)" to RemoteButtonAction.JUMP,
+                            "Skip episode" to RemoteButtonAction.SKIP_EPISODE
+                        ),
+                        selected = playerSettings.remoteButtonAction,
+                        onSelect = { PlayerSettings.setRemoteButtonAction(it) }
+                    )
+                    Text(
+                        text = "Applies to steering-wheel, Bluetooth headset, Android Auto and lock-screen Next/Previous. " +
+                            "\"Jump\" moves within the episode so a stray press never drops it. The on-screen skip buttons " +
+                            "and Android Auto's \"Skip episode\" button always change episodes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show \"Save Idea / Bookmark\" button", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = TextPrimary)
+                            Text("On the Now Playing screen", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
+                        Switch(
+                            checked = playerSettings.showBookmarkButton,
+                            onCheckedChange = { PlayerSettings.setShowBookmarkButton(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = BurntOrange, checkedTrackColor = BurntOrange.copy(alpha = 0.4f))
+                        )
+                    }
+                }
+            }
+
             // Playlist Programming & Feed Limits Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
@@ -838,7 +911,7 @@ fun SettingsScreen(
                     Text("• 5-Tier Priority Matrix & 1-tap Hot List (Priority 1 shows)", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     Text("• JIT News Refresh right before playback starts", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                     Text("• Per-feed Skip Intro & Skip Outro trim offsets", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                    Text("• 15s Rewind & 90s Forward Skip hardware & UI controls", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Text("• Adjustable rewind & forward skip (default 15s / 90s) on screen, steering wheel & headset", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 }
             }
 
@@ -1116,6 +1189,23 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.size(8.dp))
                         Text("Send Alpha Feedback Email", fontWeight = FontWeight.Bold)
                     }
+
+                    OutlinedButton(
+                        onClick = {
+                            val report = CrashReporter.latestReport(context)
+                            if (report == null) {
+                                android.widget.Toast.makeText(context, "No crash reports saved. Nice.", android.widget.Toast.LENGTH_SHORT).show()
+                            } else if (!CrashReporter.emailReport(context, report)) {
+                                android.widget.Toast.makeText(context, "No email app found. Contact: ${CrashReporter.DEVELOPER_EMAIL}", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Email, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text("Email Last Crash Report", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                    }
                 }
             }
 
@@ -1141,5 +1231,37 @@ fun SettingsScreen(
         InspirationStudioSheet(
             onDismiss = { showInspirationStudio = false }
         )
+    }
+}
+
+/** A row of pill-style choices (same look as the update-frequency picker). Wraps onto extra lines on narrow screens. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun <T> SettingChoiceRow(
+    choices: List<Pair<String, T>>,
+    selected: T,
+    onSelect: (T) -> Unit
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        choices.forEach { (label, value) ->
+            val isSelected = value == selected
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (isSelected) BurntOrange else ForestGreenSurface,
+                modifier = Modifier.clickable { onSelect(value) }
+            ) {
+                Text(
+                    text = label,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) TextPrimary else TextSecondary
+                )
+            }
+        }
     }
 }

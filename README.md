@@ -14,9 +14,9 @@
 ## 📢 Calling Alpha Testers!
 Are you looking for a podcast player that actually manages your queue automatically instead of making you swipe and reorder dozens of episodes every day?
 
-* 📲 **[Download Direct APK (v0.9.1-alpha)](./android/app/build/outputs/apk/debug/app-debug.apk)** — Direct `.apk` installer for Android.
+* 📲 **[Download Direct APK (v0.9.2-alpha)](./android/app/build/outputs/apk/debug/app-debug.apk)** — Direct `.apk` installer for Android.
 * ⚡ **[Complete Feature List (FEATURES.md)](./FEATURES.md)** — In-depth breakdown of all feature pillars and engine invariants.
-* 📝 **[Changelog (CHANGELOG.md)](./CHANGELOG.md)** — Version-by-version release history from v0.1.0 to v0.9.1-alpha.
+* 📝 **[Changelog (CHANGELOG.md)](./CHANGELOG.md)** — Version-by-version release history from v0.1.0 to v0.9.2-alpha.
 * 📋 **[Alpha Tester Guide (ALPHA_TESTERS.md)](./ALPHA_TESTERS.md)** — Step-by-step setup, feedback channels, and test scenarios.
 * 📊 **[Product Data Sheet (PRODUCT_DATA_SHEET.md)](./PRODUCT_DATA_SHEET.md)** — Full technical specifications.
 * 🌐 **[Interactive Product Website (product-info.html)](./public/product-info.html)** — Comprehensive landing page with screenshots and feature breakdowns.

@@ -40,6 +40,8 @@ import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.InspirationClip
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.data.repository.PodcastRepository
+import com.eagertolisten.app.settings.PlayerSettings
+import com.eagertolisten.app.settings.RemoteButtonAction
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -51,6 +53,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -129,6 +133,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        PlayerSettings.init(applicationContext)
         database = EagerDatabase.getInstance(applicationContext)
 
         val audioAttributes = AudioAttributes.Builder()
@@ -164,8 +169,8 @@ class PlaybackService : MediaLibraryService() {
         rawPlayer = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setSeekBackIncrementMs(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
-            .setSeekForwardIncrementMs(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+            .setSeekBackIncrementMs(PlayerSettings.current().seekBackMs)
+            .setSeekForwardIncrementMs(PlayerSettings.current().seekForwardMs)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -173,8 +178,11 @@ class PlaybackService : MediaLibraryService() {
         // 3. Wrap in ForwardingPlayer to guarantee podcast transport controls:
         // - Keep COMMAND_SEEK_TO_NEXT / PREVIOUS advertised as available so Media3's
         //   MediaSessionStub & MediaSessionLegacyStub accept car steering wheel / Bluetooth AVRCP
-        //   next/prev button presses instead of rejecting them. Next/previous navigate the queue
-        //   (skipCurrentEpisode / playPreviousEpisodeOrRestart); seekForward/seekBack jump +90s/-15s.
+        //   next/prev button presses instead of rejecting them.
+        // - External Next/Previous (steering wheel, headset, Android Auto, lock screen) follow the
+        //   user's "Car / headset Next & Previous" setting: JUMP (default) seeks forward/back by the
+        //   configured skip times, SKIP_EPISODE navigates the queue. The in-app skip buttons send
+        //   CUSTOM_ACTION_SKIP_NEXT / SKIP_PREVIOUS, so they always skip episodes.
         player = object : ForwardingPlayer(rawPlayer) {
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
@@ -213,31 +221,36 @@ class PlaybackService : MediaLibraryService() {
             }
 
             // Android Auto routes steering-wheel next/prev and the on-screen next/prev slots through
-            // the same seekToNext/seekToPrevious callbacks: both navigate the queue. The +90s/-15s
-            // jumps are the custom FAST_FORWARD / REWIND actions and the media FF/REW keys.
+            // the same seekToNext/seekToPrevious callbacks, so both follow the remote-button setting.
+            // Skipping a whole episode is always available as the "Skip episode" custom action.
             override fun seekToNext() {
-                skipCurrentEpisode()
+                handleRemoteNext()
             }
 
             override fun seekToNextMediaItem() {
-                skipCurrentEpisode()
+                handleRemoteNext()
             }
 
             override fun seekToPrevious() {
-                playPreviousEpisodeOrRestart()
+                handleRemotePrevious()
             }
 
             override fun seekToPreviousMediaItem() {
-                playPreviousEpisodeOrRestart()
+                handleRemotePrevious()
             }
 
             override fun seekForward() {
-                performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                performSeekForward(PlayerSettings.current().seekForwardMs)
             }
 
             override fun seekBack() {
-                performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                performSeekBack(PlayerSettings.current().seekBackMs)
             }
+
+            // Report the user's current skip times (ExoPlayer's builder values are fixed at creation).
+            override fun getSeekForwardIncrement(): Long = PlayerSettings.current().seekForwardMs
+
+            override fun getSeekBackIncrement(): Long = PlayerSettings.current().seekBackMs
 
             override fun seekToDefaultPosition(mediaItemIndex: Int) {
                 super.seekToDefaultPosition(mediaItemIndex)
@@ -259,6 +272,21 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivityIntent)
             .setId("EagerToListenMediaLibrarySession")
             .build()
+
+        // Keep the Android Auto / notification button labels ("Rewind 15s", "Forward 90s") in step
+        // with the skip times chosen in Settings.
+        serviceScope.launch {
+            PlayerSettings.state
+                .map { it.seekBackSeconds to it.seekForwardSeconds }
+                .distinctUntilChanged()
+                .collect {
+                    try {
+                        mediaLibrarySession?.setCustomLayout(buildCustomLayout())
+                    } catch (e: Exception) {
+                        android.util.Log.w("PlaybackService", "Could not refresh custom layout", e)
+                    }
+                }
+        }
 
         player.addListener(object : Player.Listener {
             override fun onPositionDiscontinuity(
@@ -944,7 +972,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    fun performSeekForward(incrementMs: Long = PlaybackConfig.SEEK_FORWARD_INCREMENT_MS) {
+    fun performSeekForward(incrementMs: Long = PlayerSettings.current().seekForwardMs) {
         checkMainThread()
         val currentEp = PlaybackStateManager.state.value.currentEpisode
         val rawDuration = rawPlayer.duration
@@ -973,7 +1001,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    fun performSeekBack(decrementMs: Long = PlaybackConfig.SEEK_BACK_INCREMENT_MS) {
+    fun performSeekBack(decrementMs: Long = PlayerSettings.current().seekBackMs) {
         checkMainThread()
         val currentPos = rawPlayer.currentPosition.coerceAtLeast(0L)
         val skipIntro = PlaybackStateManager.state.value.skipIntroSeconds
@@ -986,6 +1014,55 @@ class PlaybackService : MediaLibraryService() {
         rawPlayer.seekTo(targetPos)
         PlaybackStateManager.setProgress(targetPos, duration, rawPlayer.bufferedPosition)
         persistCurrentProgress()
+    }
+
+    /** Android Auto / notification custom buttons, labelled with the user's current skip times. */
+    private fun buildCustomLayout(): List<CommandButton> {
+        val settings = PlayerSettings.current()
+        val customSkipBtn = CommandButton.Builder()
+            .setDisplayName("Skip episode")
+            .setSessionCommand(SessionCommand(CUSTOM_ACTION_SKIP_NEXT, Bundle.EMPTY))
+            .setIconResId(android.R.drawable.ic_media_next)
+            .build()
+
+        val customRewindBtn = CommandButton.Builder()
+            .setDisplayName("Rewind ${settings.seekBackSeconds}s")
+            .setSessionCommand(SessionCommand(CUSTOM_ACTION_REWIND, Bundle.EMPTY))
+            .setIconResId(android.R.drawable.ic_media_rew)
+            .build()
+
+        val customForwardBtn = CommandButton.Builder()
+            .setDisplayName("Forward ${settings.seekForwardSeconds}s")
+            .setSessionCommand(SessionCommand(CUSTOM_ACTION_FAST_FORWARD, Bundle.EMPTY))
+            .setIconResId(android.R.drawable.ic_media_ff)
+            .build()
+
+        val customInspirationBtn = CommandButton.Builder()
+            .setDisplayName("Save Idea")
+            .setSessionCommand(SessionCommand(CUSTOM_ACTION_SAVE_INSPIRATION, Bundle.EMPTY))
+            .setIconResId(android.R.drawable.btn_star_big_on)
+            .build()
+
+        return listOf(customSkipBtn, customRewindBtn, customForwardBtn, customInspirationBtn)
+    }
+
+    /**
+     * Next from a steering wheel, headset, Android Auto or the lock screen.
+     * Default (JUMP): seek forward by the configured skip time, so a stray press never drops the episode.
+     */
+    fun handleRemoteNext() {
+        when (PlayerSettings.current().remoteButtonAction) {
+            RemoteButtonAction.JUMP -> performSeekForward(PlayerSettings.current().seekForwardMs)
+            RemoteButtonAction.SKIP_EPISODE -> skipCurrentEpisode()
+        }
+    }
+
+    /** Previous from a steering wheel, headset, Android Auto or the lock screen. */
+    fun handleRemotePrevious() {
+        when (PlayerSettings.current().remoteButtonAction) {
+            RemoteButtonAction.JUMP -> performSeekBack(PlayerSettings.current().seekBackMs)
+            RemoteButtonAction.SKIP_EPISODE -> playPreviousEpisodeOrRestart()
+        }
     }
 
     fun skipCurrentEpisode() {
@@ -1373,7 +1450,8 @@ class PlaybackService : MediaLibraryService() {
 
             // Keep COMMAND_SEEK_TO_NEXT / PREVIOUS enabled so Media3's MediaSessionStub and
             // MediaSessionLegacyStub accept car steering wheel / Bluetooth AVRCP next/prev buttons
-            // and route them into ForwardingPlayer.seekToNext() -> performSeekForward(90_000L).
+            // and route them into ForwardingPlayer.seekToNext() / seekToPrevious(), which follow the
+            // remote-button setting (handleRemoteNext / handleRemotePrevious).
             val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
                 .add(Player.COMMAND_SEEK_FORWARD)
                 .add(Player.COMMAND_SEEK_BACK)
@@ -1383,31 +1461,7 @@ class PlaybackService : MediaLibraryService() {
                 .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                 .build()
 
-            val customSkipBtn = CommandButton.Builder()
-                .setDisplayName("Skip episode")
-                .setSessionCommand(SessionCommand(CUSTOM_ACTION_SKIP_NEXT, Bundle.EMPTY))
-                .setIconResId(android.R.drawable.ic_media_next)
-                .build()
-
-            val customRewindBtn = CommandButton.Builder()
-                .setDisplayName("Rewind 15s")
-                .setSessionCommand(SessionCommand(CUSTOM_ACTION_REWIND, Bundle.EMPTY))
-                .setIconResId(android.R.drawable.ic_media_rew)
-                .build()
-
-            val customForwardBtn = CommandButton.Builder()
-                .setDisplayName("Forward 90s")
-                .setSessionCommand(SessionCommand(CUSTOM_ACTION_FAST_FORWARD, Bundle.EMPTY))
-                .setIconResId(android.R.drawable.ic_media_ff)
-                .build()
-
-            val customInspirationBtn = CommandButton.Builder()
-                .setDisplayName("Save Idea")
-                .setSessionCommand(SessionCommand(CUSTOM_ACTION_SAVE_INSPIRATION, Bundle.EMPTY))
-                .setIconResId(android.R.drawable.btn_star_big_on)
-                .build()
-
-            val autoCustomLayout = listOf(customSkipBtn, customRewindBtn, customForwardBtn, customInspirationBtn)
+            val autoCustomLayout = buildCustomLayout()
             session.setCustomLayout(autoCustomLayout)
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -1760,11 +1814,11 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
                 CUSTOM_ACTION_REWIND -> {
-                    performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                    performSeekBack(PlayerSettings.current().seekBackMs)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CUSTOM_ACTION_FAST_FORWARD -> {
-                    performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                    performSeekForward(PlayerSettings.current().seekForwardMs)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CUSTOM_ACTION_SKIP_NEXT -> {
@@ -1798,13 +1852,13 @@ class PlaybackService : MediaLibraryService() {
                     KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
                     KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            performSeekForward(PlaybackConfig.SEEK_FORWARD_INCREMENT_MS)
+                            performSeekForward(PlayerSettings.current().seekForwardMs)
                         }
                         return true
                     }
                     KeyEvent.KEYCODE_MEDIA_NEXT -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            skipCurrentEpisode()
+                            handleRemoteNext()
                         }
                         return true
                     }
@@ -1812,13 +1866,13 @@ class PlaybackService : MediaLibraryService() {
                     KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
                     KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            performSeekBack(PlaybackConfig.SEEK_BACK_INCREMENT_MS)
+                            performSeekBack(PlayerSettings.current().seekBackMs)
                         }
                         return true
                     }
                     KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
                         if (keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount == 0) {
-                            playPreviousEpisodeOrRestart()
+                            handleRemotePrevious()
                         }
                         return true
                     }

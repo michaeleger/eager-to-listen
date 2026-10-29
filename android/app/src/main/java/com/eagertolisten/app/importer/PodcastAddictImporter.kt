@@ -190,6 +190,9 @@ class PodcastAddictImporter(private val context: Context) {
             if (episodeTable != null) {
                 val episodesToInsert = mutableListOf<Episode>()
                 sqlite.rawQuery("SELECT * FROM $episodeTable", null).use { cursor ->
+                    // Logged so a tester's log or crash report shows exactly which columns this
+                    // Podcast Addict version uses (the played-state column names aren't documented).
+                    android.util.Log.i("PodcastAddictImporter", "Episode table '$episodeTable' columns: ${cursor.columnNames.joinToString()}")
                     while (cursor.moveToNext()) {
                         val rawPodcastId = getColumnString(cursor, "podcast_id", "feed_id", "podcastId") ?: ""
                         val eagerPodcastId = podcastIdMap[rawPodcastId]
@@ -201,13 +204,18 @@ class PodcastAddictImporter(private val context: Context) {
                         val epId = EpisodeId.of(podcastId = eagerPodcastId, guid = guid, enclosureUrl = audioUrl)
 
                         val pubDate = getColumnLong(cursor, 0L, "publication_date", "pub_date", "date", "published_at")
-                        val duration = getColumnLong(cursor, 0L, "duration", "total_time", "length")
+                        val durationSecondsRaw = getColumnLong(cursor, 0L, "duration", "total_time", "length")
+                        val duration = if (durationSecondsRaw > 0L) durationSecondsRaw
+                            else getColumnLong(cursor, 0L, "duration_ms") / 1000L
 
-                        val rawPos = getColumnLong(cursor, 0L, "playback_position", "position", "progress")
+                        val rawPos = getColumnLong(cursor, 0L, "playback_position", "position_to_resume", "position", "progress")
                         // If position is in milliseconds (> 100_000 and duration < 100_000), convert to seconds
                         val posSec = if (rawPos > 100_000L && duration > 0L && rawPos > duration) rawPos / 1000L else rawPos
 
-                        val playedFlag = getColumnInt(cursor, 0, "read", "played", "is_read", "downloaded")
+                        // Played flag. "downloaded" used to be in this list, which is wrong: a downloaded
+                        // episode isn't necessarily played. "seen_status" is the likely Podcast Addict column;
+                        // confirm against a real backup (see the column log above).
+                        val playedFlag = getColumnInt(cursor, 0, "seen_status", "read", "played", "is_read")
                         val isCompleted = playedFlag == 1 || (duration > 0 && posSec >= (duration * 0.95))
 
                         episodesToInsert.add(

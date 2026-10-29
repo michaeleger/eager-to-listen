@@ -105,6 +105,30 @@ class QueueViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setEpisodePlayed(episode: Episode, played: Boolean) {
+        viewModelScope.launch {
+            repository.setEpisodePlayed(episode.id, played)
+            toast(if (played) "Marked as played" else "Marked as unplayed")
+        }
+    }
+
+    fun markFeedEpisodesPlayed(episode: Episode, includeOlder: Boolean) {
+        viewModelScope.launch {
+            val count = repository.markFeedEpisodesPlayed(episode.id, includeOlder)
+            toast(
+                when (count) {
+                    0 -> "Nothing to mark: those episodes are already played"
+                    1 -> "Marked 1 episode as played"
+                    else -> "Marked $count episodes of ${episode.podcastTitle} as played"
+                }
+            )
+        }
+    }
+
+    private fun toast(message: String) {
+        android.widget.Toast.makeText(getApplication(), message, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     fun toggleEpisodeDownload(episode: Episode) {
         viewModelScope.launch {
             val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(getApplication())

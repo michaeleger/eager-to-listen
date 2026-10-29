@@ -631,6 +631,14 @@ fun SubscriptionsScreen(
                                             )
                                         }
 
+                                        // Mark played / unplayed, and mark this & older / newer as played
+                                        com.eagertolisten.app.ui.components.EpisodeOverflowMenu(
+                                            isPlayed = ep.isCompleted,
+                                            onSetPlayed = { played -> feedViewModel.setEpisodePlayed(ep, played) },
+                                            onMarkThisAndOlderPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = true) },
+                                            onMarkThisAndNewerPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = false) }
+                                        )
+
                                         IconButton(onClick = { onPlayEpisode?.invoke(ep) }) {
                                             Surface(
                                                 shape = RoundedCornerShape(18.dp),

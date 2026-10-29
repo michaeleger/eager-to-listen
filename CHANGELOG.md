@@ -5,6 +5,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.9.2-alpha] - 2026-10-29
+
+Fixes from the first round of 0.9.1 tester reports.
+
+### 🚗 Car & Headset Controls
+- **Steering-wheel Next/Previous jump within the episode again (regression fix)**: 0.9.1 mapped car and headset Next/Previous to skipping whole episodes, so a stray press on the wheel dropped the episode you were listening to. They now jump forward/back by your skip times (default +90s / -15s).
+- **New setting: Settings > Player Controls > "Car / headset Next & Previous buttons"**: **Jump** (default) or **Skip episode**. It covers the steering wheel, Bluetooth headsets, Android Auto and the lock screen. The on-screen skip-episode buttons and Android Auto's "Skip episode" button always change episodes.
+
+### ▶️ Player
+- **Player controls no longer hide under the status bar, camera cut-out or navigation bar**: the collapse arrow, speed control and Bookmark button are reachable on edge-to-edge phones (e.g. Pixel 10 Pro XL) in portrait.
+- **Back gesture closes the player**: system Back collapses Now Playing to the mini player instead of leaving the app.
+- **Adjustable skip times**: rewind and forward can each be set to 10, 15, 30, 45, 60 or 90 seconds (defaults stay 15s back / 90s forward). The on-screen buttons, mini player, Android Auto buttons and car/headset jumps all follow the setting.
+- **Readable skip labels**: the seconds now sit under the rewind/forward icons at a larger size instead of on top of them.
+- **Hide the "Save Idea / Bookmark" button** if you don't use it: Settings > Player Controls.
+
+### ✅ Played Status
+- **Mark as played / unplayed** from the ⋮ menu on any episode, in the Queue tabs and in a podcast's episode list.
+- **Mark this & older as played / Mark this & newer as played** for a podcast, with a confirmation first, for catching up after an import.
+- **Podcast Addict import**: stopped treating "downloaded" as "played", added Podcast Addict's likely played/position/duration column names, and the importer now logs the backup's episode columns so the mapping can be confirmed against a real backup.
+
+### 🛠 Stability & Diagnostics
+- **Feed refresh hardening**: a feed too large to parse now fails on its own instead of crashing the app; a failure while rebuilding the queue after a refresh no longer crashes the app; only one full refresh runs at a time (startup, manual, scheduled); queue rebuilds are serialized app-wide.
+- **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings > "Email Last Crash Report".
+
+---
+
 ## [0.9.1-alpha] - 2026-10-27
 
 ### 🔄 In-Car Track Navigation & Audio Interruption Recovery

@@ -70,7 +70,7 @@
   - [x] Seamless Playback Resumption: Auto-resumes paused episode or starts top of pending playlist on car connection
   - [x] Google Assistant Voice Support (`onSearch`, `onGetSearchResult`, `onSetMediaItems`, `onAddMediaItems`): Matches spoken podcast and episode queries
   - [x] Automatic sync of per-feed playback speed, skip intro (skips first X seconds), and skip outro across all transitions
-  - [x] Hardware / steering wheel controls: 15s rewind & 90s forward skip preserved
+  - [x] Hardware / steering wheel controls: Next/Previous jump forward/back by the user's skip times (default 90s / 15s), or skip episodes if set in Settings > Player Controls (0.9.2)
   - [x] Add synchronous and search query methods to `EpisodeDao` and `PodcastDao`
   - [x] Full build verification with `./gradlew assembleDebug` (0 errors, BUILD SUCCESSFUL)
 - [x] **Phase 19: Podcast Addict DB / Backup Importer & Device Testing**
