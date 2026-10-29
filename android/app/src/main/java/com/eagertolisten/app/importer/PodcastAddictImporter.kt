@@ -219,6 +219,17 @@ class PodcastAddictImporter(private val context: Context) {
                         val playedFlag = getColumnInt(cursor, 0, "seen_status", "read", "played", "is_read")
                         val isCompleted = playedFlag == 1 || (duration > 0 && posSec >= (duration * 0.95))
 
+                        // When it was played. Stamping every imported episode with "now" made every show
+                        // look just-heard to the queue's fairness rules. Use the backup's last-played date if
+                        // it has one (column name unconfirmed), else the publish date as a stand-in.
+                        val rawPlayedAt = getColumnLong(cursor, 0L, "playback_date", "playbackDate", "last_played", "last_playback_date")
+                        val playedAtMs = when {
+                            rawPlayedAt in 1L until 100_000_000_000L -> rawPlayedAt * 1000L  // epoch seconds
+                            rawPlayedAt > 0L -> rawPlayedAt
+                            pubDate > 0L -> pubDate
+                            else -> null
+                        }
+
                         episodesToInsert.add(
                             Episode(
                                 id = epId,
@@ -230,7 +241,7 @@ class PodcastAddictImporter(private val context: Context) {
                                 durationSeconds = duration,
                                 playbackPositionSeconds = posSec,
                                 isCompleted = isCompleted,
-                                completedAt = if (isCompleted) System.currentTimeMillis() else null
+                                completedAt = if (isCompleted) playedAtMs else null
                             )
                         )
                     }
@@ -245,7 +256,7 @@ class PodcastAddictImporter(private val context: Context) {
                         // before this backup), so carry the backup's played state / position onto them.
                         for (ep in episodesToInsert) {
                             if (ep.isCompleted) {
-                                episodeDao.applyImportedPlayed(ep.id, now)
+                                episodeDao.applyImportedPlayed(ep.id, ep.completedAt, now)
                             } else if (ep.playbackPositionSeconds > 0) {
                                 episodeDao.applyImportedPosition(ep.id, ep.playbackPositionSeconds, now)
                             }

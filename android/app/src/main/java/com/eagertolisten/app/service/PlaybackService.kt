@@ -86,6 +86,10 @@ class PlaybackService : MediaLibraryService() {
     private var eofReconnectCount = 0
     private var currentEofEpisodeId: String? = null
     private var hasPrefetchedUpcomingNews = false
+
+    // Episode just started at an explicit position (e.g. a bookmark). The media-item transition
+    // handler must not replace that position with the saved resume point or skip-intro.
+    private var explicitStartEpisodeId: String? = null
     private var queueMirrorJob: Job? = null
     private var currentPodcastObserveJob: Job? = null
     private val playbackHistory = ArrayDeque<String>()
@@ -329,14 +333,28 @@ class PlaybackService : MediaLibraryService() {
 
                     withContext(Dispatchers.Main) {
                         checkMainThread()
+                        // A newer playlist may have been loaded while we read the database; don't
+                        // apply this episode's settings, queue or resume point to some other item.
+                        if (rawPlayer.currentMediaItem?.mediaId != episodeId) return@withContext
+
                         applyShowSettings(episode, podcast)
+
                         // Refill "up next" from the queue whenever the playing episode changes
-                        // (e.g. a single episode started from Android Auto's browse list). Leave out the
-                        // episode we just moved off: its finished/skipped write may not have landed yet.
-                        syncUpcomingItemsWithQueue(queueSnapshot, excludeIds = setOfNotNull(currentId))
+                        // (e.g. a single episode started from Android Auto's browse list). Only after an
+                        // automatic advance or a skip do we leave out the episode we moved off (its
+                        // finished/skipped write may not have landed yet). When a new playlist replaced
+                        // it (the user picked something else), it's still in the queue and stays next.
+                        val movedOn = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                            reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+                        val exclude = if (movedOn) setOfNotNull(currentId?.takeIf { it != episodeId }) else emptySet()
+                        syncUpcomingItemsWithQueue(queueSnapshot, excludeIds = exclude)
+
+                        // Started at an explicit position (bookmark): keep it, even under 2 seconds.
+                        val explicitStart = explicitStartEpisodeId == episodeId
+                        if (explicitStart) explicitStartEpisodeId = null
 
                         // If freshly transitioning from beginning, apply saved position or skip intro
-                        if (player.currentPosition < 2000L) {
+                        if (!explicitStart && player.currentPosition < 2000L) {
                             val skipIntro = if (episode.isLive) 0 else (podcast?.skipIntroSeconds ?: 0)
                             val startPosMs = if (episode.playbackPositionSeconds > 0) {
                                 episode.playbackPositionSeconds * 1000L
@@ -803,6 +821,7 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     0L
                 }
+                explicitStartEpisodeId = if (startPositionOverrideMs != null && !episode.isLive) episode.id else null
                 player.setMediaItems(playlist, 0, startPosMs)
                 player.prepare()
                 player.play()
@@ -944,12 +963,9 @@ class PlaybackService : MediaLibraryService() {
     private fun onEpisodeLeft(episodeId: String, positionMs: Long) {
         val posSec = (positionMs / 1000L).coerceAtLeast(0L)
         EagerApp.instance.appScope.launch(Dispatchers.IO) {
-            database.episodeDao().updatePlaybackProgress(
-                episodeId = episodeId,
-                positionSec = posSec,
-                isCompleted = false,
-                updatedAt = System.currentTimeMillis()
-            )
+            // Through the repository so an episode already marked played (e.g. left in its last 2%)
+            // is never flipped back to unplayed (invariant I2). The raw DAO write didn't check.
+            repository.updatePlaybackProgress(episodeId, posSec, isCompleted = false)
         }
     }
 

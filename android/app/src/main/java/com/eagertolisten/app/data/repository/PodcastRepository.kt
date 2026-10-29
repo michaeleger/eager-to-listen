@@ -740,18 +740,20 @@ class PodcastRepository(context: Context) {
 
     suspend fun updatePlaybackProgress(episodeId: String, positionSec: Long, isCompleted: Boolean) = withContext(Dispatchers.IO) {
         if (isCompleted) {
-            val existing = episodeDao.getEpisodeByIdSync(episodeId)
-            if (existing?.isCompleted == true) {
-                // Already finished. The progress tracker reports "completed" on every 10s tick in the
-                // last 2%; don't redo the finish work (queue rebuild, file delete) each time.
-                return@withContext
-            }
-            val playingNow = PlaybackStateManager.state.value.let { it.isPlaying && it.currentEpisode?.id == episodeId }
-            if (playingNow) {
-                // Still playing the last 2%: record it as played, but leave the downloaded file and the
-                // queue rebuild to the real end of the episode (PlaybackService.onEpisodeFinished),
-                // so the audio isn't deleted out from under the player.
-                episodeDao.markEpisodeFinished(episodeId, System.currentTimeMillis())
+            val loadedNow = PlaybackStateManager.state.value.currentEpisode?.id == episodeId
+            if (loadedNow) {
+                // Still loaded in the player (playing, paused, ducked or buffering in the last 2%).
+                // The progress tracker reports "completed" on every 10s tick here, so just record it as
+                // played, once. Deleting the download and rebuilding the queue wait until playback
+                // actually moves on (PlaybackService.onEpisodeFinished) or the download sweep, so the
+                // audio is never deleted while the episode can still be resumed.
+                val existing = episodeDao.getEpisodeByIdSync(episodeId)
+                if (existing != null && !existing.isCompleted) {
+                    episodeDao.markEpisodeFinished(episodeId, System.currentTimeMillis())
+                    // Drop it from the queue now (cheap, no rebuild) so a restart doesn't put a
+                    // finished episode back on top.
+                    queueDao.removeEpisodeFromQueue(episodeId)
+                }
             } else {
                 markEpisodeFinished(episodeId)
             }

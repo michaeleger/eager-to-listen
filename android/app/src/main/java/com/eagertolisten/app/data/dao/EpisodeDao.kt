@@ -182,18 +182,19 @@ interface EpisodeDao {
     @Query("""
         UPDATE episodes
         SET isCompleted = 1,
-            completedAt = :timestamp,
+            completedAt = :completedAt,
             playbackPositionSeconds = CASE WHEN durationSeconds > 0 THEN durationSeconds ELSE playbackPositionSeconds END,
+            dismissReason = NULL,
             updatedAt = :timestamp
         WHERE id = :episodeId AND isCompleted = 0
     """)
-    suspend fun applyImportedPlayed(episodeId: String, timestamp: Long): Int
+    suspend fun applyImportedPlayed(episodeId: String, completedAt: Long?, timestamp: Long): Int
 
     @Query("""
         UPDATE episodes
         SET playbackPositionSeconds = :positionSec,
             updatedAt = :timestamp
-        WHERE id = :episodeId AND isCompleted = 0 AND playbackPositionSeconds = 0
+        WHERE id = :episodeId AND isCompleted = 0 AND playbackPositionSeconds < :positionSec
     """)
     suspend fun applyImportedPosition(episodeId: String, positionSec: Long, timestamp: Long): Int
 
