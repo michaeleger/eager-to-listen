@@ -31,11 +31,17 @@ object PlaybackController {
         }, ContextCompat.getMainExecutor(context))
     }
 
-    fun playEpisode(context: Context, episode: Episode, podcastId: String?) {
+    /**
+     * Plays [episode]. Pass [startPositionMs] to start at a specific spot (e.g. a saved bookmark);
+     * otherwise it resumes from the saved position. Seeking right after this call doesn't work,
+     * because the service loads the episode asynchronously.
+     */
+    fun playEpisode(context: Context, episode: Episode, podcastId: String?, startPositionMs: Long? = null) {
         val intent = Intent(context, PlaybackService::class.java).apply {
             action = PlaybackService.ACTION_PLAY_EPISODE
             putExtra(PlaybackService.EXTRA_EPISODE_ID, episode.id)
             putExtra(PlaybackService.EXTRA_PODCAST_ID, podcastId)
+            if (startPositionMs != null) putExtra(PlaybackService.EXTRA_START_POSITION_MS, startPositionMs)
         }
         ContextCompat.startForegroundService(context, intent)
     }

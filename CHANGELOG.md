@@ -11,6 +11,7 @@ Fixes from the first round of 0.9.1 tester reports.
 
 ### 🚗 Car & Headset Controls
 - **Steering-wheel Next/Previous jump within the episode again (regression fix)**: 0.9.1 mapped car and headset Next/Previous to skipping whole episodes, so a stray press on the wheel dropped the episode you were listening to. They now jump forward/back by your skip times (default +90s / -15s).
+- **Android Auto "Up next" shows the whole queue**: starting an episode from Android Auto's browse list used to load just that one episode, so "Up next" showed a single show until the queue happened to change. It now refills with the next 10 queued episodes (across all shows) whenever the playing episode changes.
 - **New setting: Settings > Player Controls > "Car / headset Next & Previous buttons"**: **Jump** (default) or **Skip episode**. It covers the steering wheel, Bluetooth headsets, Android Auto and the lock screen. The on-screen skip-episode buttons and Android Auto's "Skip episode" button always change episodes.
 
 ### ▶️ Player
@@ -22,6 +23,7 @@ Fixes from the first round of 0.9.1 tester reports.
 
 ### 🎙 Podcasts & Supporting Shows
 - **Easier way back to the podcast list**: a show's page now has an "All Podcasts" back button at the top (it covers the bottom tabs, so swiping down was the only way out). Tapping the Podcasts tab again also closes an open show, and tapping the show name on Now Playing jumps straight to that show's page.
+- **Boost hidden until it works**: the Lightning ⚡ Boost buttons and the wallet setup in Settings are hidden for now (`FeatureFlags.V4V_BOOST` / `V4V_NWC`), since boosts can't be sent yet. Support Show stays.
 - **Support Show is easier to find**: shows with a donate link get a ♥ button right on their row in the podcast list, and "Support Show" is now the filled, primary button on the show page and Now Playing (Boost is the secondary button).
 
 ### ✅ Played Status
@@ -30,6 +32,11 @@ Fixes from the first round of 0.9.1 tester reports.
 - **Podcast Addict import**: stopped treating "downloaded" as "played", added Podcast Addict's likely played/position/duration column names, and the importer now logs the backup's episode columns so the mapping can be confirmed against a real backup.
 
 ### 🛠 Stability & Diagnostics
+- **No more replaying a just-finished episode** when the next show is a News feed: after the just-in-time news refresh, the player no longer picks the episode that just ended from the top of the queue.
+- **"Finished" is recorded once**: in the last 2% of an episode the app used to re-run the finish work every 10 seconds (queue rebuild, deleting the downloaded file while it was still playing). It now marks the episode played once and leaves the file and queue rebuild to the real end.
+- **Playing a saved bookmark starts at the bookmark** (Creator Inspiration Studio) instead of the saved resume point.
+- **Podcast Addict import merges into existing episodes**: if you subscribed (or imported an OPML) before importing the full backup, the backup's played status and resume positions are now applied to those episodes instead of being skipped. Large backups are inserted in chunks.
+- **Discover's "Subscribed" badge** now recognizes a feed even when the directory lists it with http vs https, different capitalization or a trailing slash.
 - **Feed refresh hardening**: a feed too large to parse now fails on its own instead of crashing the app; a failure while rebuilding the queue after a refresh no longer crashes the app; only one full refresh runs at a time (startup, manual, scheduled); queue rebuilds are serialized app-wide.
 - **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings > "Email Last Crash Report".
 

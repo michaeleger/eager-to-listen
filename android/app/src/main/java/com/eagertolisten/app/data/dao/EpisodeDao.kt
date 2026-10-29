@@ -177,6 +177,26 @@ interface EpisodeDao {
     """)
     suspend fun markEpisodesPlayedFrom(podcastId: String, publishedAt: Long, completedAt: Long): Int
 
+    // Podcast Addict import into episodes that already exist (e.g. subscribed or OPML-imported first):
+    // apply the backup's played state / position without ever un-playing anything.
+    @Query("""
+        UPDATE episodes
+        SET isCompleted = 1,
+            completedAt = :timestamp,
+            playbackPositionSeconds = CASE WHEN durationSeconds > 0 THEN durationSeconds ELSE playbackPositionSeconds END,
+            updatedAt = :timestamp
+        WHERE id = :episodeId AND isCompleted = 0
+    """)
+    suspend fun applyImportedPlayed(episodeId: String, timestamp: Long): Int
+
+    @Query("""
+        UPDATE episodes
+        SET playbackPositionSeconds = :positionSec,
+            updatedAt = :timestamp
+        WHERE id = :episodeId AND isCompleted = 0 AND playbackPositionSeconds = 0
+    """)
+    suspend fun applyImportedPosition(episodeId: String, positionSec: Long, timestamp: Long): Int
+
     @Query("SELECT id FROM episodes WHERE podcastId = :podcastId AND completedAt = :completedAt AND isDownloaded = 1")
     suspend fun getDownloadedIdsCompletedAt(podcastId: String, completedAt: Long): List<String>
 

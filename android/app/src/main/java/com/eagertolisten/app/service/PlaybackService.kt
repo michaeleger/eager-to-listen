@@ -112,6 +112,8 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_PLAY_FROM_SEARCH = "com.eagertolisten.app.PLAY_FROM_SEARCH"
         const val EXTRA_EPISODE_ID = "extra_episode_id"
         const val EXTRA_PODCAST_ID = "extra_podcast_id"
+        /** Optional: start playback at this position (ms) instead of the saved position, e.g. a bookmark. */
+        const val EXTRA_START_POSITION_MS = "extra_start_position_ms"
         const val EXTRA_SEARCH_QUERY = "extra_search_query"
 
         // Android Auto & Custom Transport Actions
@@ -129,6 +131,9 @@ class PlaybackService : MediaLibraryService() {
         const val CATEGORY_SUBSCRIPTIONS = "category_subscriptions"
 
         private const val MAX_AUTO_BROWSE_ITEMS = 100
+
+        /** How many queued episodes follow the current one in the player (Android Auto's "Up next"). */
+        private const val UPCOMING_QUEUE_ITEMS = 10
     }
 
     override fun onCreate() {
@@ -320,10 +325,15 @@ class PlaybackService : MediaLibraryService() {
                 serviceScope.launch(Dispatchers.IO) {
                     val episode = database.episodeDao().getEpisodeByIdSync(episodeId) ?: return@launch
                     val podcast = database.podcastDao().getPodcastByIdSync(episode.podcastId)
+                    val queueSnapshot = database.queueDao().getQueueEpisodesSync()
 
                     withContext(Dispatchers.Main) {
                         checkMainThread()
                         applyShowSettings(episode, podcast)
+                        // Refill "up next" from the queue whenever the playing episode changes
+                        // (e.g. a single episode started from Android Auto's browse list). Leave out the
+                        // episode we just moved off: its finished/skipped write may not have landed yet.
+                        syncUpcomingItemsWithQueue(queueSnapshot, excludeIds = setOfNotNull(currentId))
 
                         // If freshly transitioning from beginning, apply saved position or skip intro
                         if (player.currentPosition < 2000L) {
@@ -519,8 +529,9 @@ class PlaybackService : MediaLibraryService() {
             ACTION_PLAY_EPISODE -> {
                 val episodeId = intent.getStringExtra(EXTRA_EPISODE_ID)
                 val podcastId = intent.getStringExtra(EXTRA_PODCAST_ID)
+                val startPositionMs = intent.getLongExtra(EXTRA_START_POSITION_MS, -1L).takeIf { it >= 0L }
                 if (!episodeId.isNullOrBlank()) {
-                    loadAndPlayEpisode(episodeId, podcastId)
+                    loadAndPlayEpisode(episodeId, podcastId, startPositionMs)
                 }
             }
             ACTION_REVERT_TO_MAIN_QUEUE -> {
@@ -574,8 +585,8 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun buildPlaylistForCurrentEpisode(currentEp: Episode): List<MediaItem> {
         val currentItem = createPlayableEpisodeItem(currentEp)
         val upcomingEpisodes = database.queueDao().getQueueEpisodesSync()
-            .filter { it.id != currentEp.id && !it.isCompleted }
-            .take(5)
+            .filter { it.id != currentEp.id && !it.isCompleted && !it.isDismissed }
+            .take(UPCOMING_QUEUE_ITEMS)
         val list = mutableListOf<MediaItem>()
         list.add(currentItem)
         for (ep in upcomingEpisodes) {
@@ -637,33 +648,45 @@ class PlaybackService : MediaLibraryService() {
             database.queueDao().getQueueEpisodes()
                 .debounce(300L)
                 .collect { queueEpisodes ->
-                    checkMainThread()
-                    val currentItem = rawPlayer.currentMediaItem ?: return@collect
-                    val currentEpId = currentItem.mediaId
-
-                    val upcoming = queueEpisodes
-                        .filter { it.id != currentEpId && !it.isCompleted && !it.isDismissed }
-                        .take(5)
-
-                    val newUpcomingItems = upcoming.map { createPlayableEpisodeItem(it) }
-                    val currentIndex = rawPlayer.currentMediaItemIndex
-                    val totalCount = rawPlayer.mediaItemCount
-
-                    val existingUpcomingIds = mutableListOf<String>()
-                    for (i in (currentIndex + 1) until totalCount) {
-                        existingUpcomingIds.add(rawPlayer.getMediaItemAt(i).mediaId)
-                    }
-                    val newUpcomingIds = newUpcomingItems.map { it.mediaId }
-
-                    if (existingUpcomingIds != newUpcomingIds) {
-                        if (totalCount > currentIndex + 1) {
-                            rawPlayer.removeMediaItems(currentIndex + 1, totalCount)
-                        }
-                        if (newUpcomingItems.isNotEmpty()) {
-                            rawPlayer.addMediaItems(newUpcomingItems)
-                        }
-                    }
+                    syncUpcomingItemsWithQueue(queueEpisodes)
                 }
+        }
+    }
+
+    /**
+     * Keeps the player's "up next" items (what Android Auto, the lock screen and Bluetooth head
+     * units show as the queue) in step with the programmed queue: the next [UPCOMING_QUEUE_ITEMS]
+     * episodes after whatever is playing. Called when the queue changes AND whenever the playing
+     * episode changes, so starting a single episode from Android Auto still shows the rest of the
+     * queue (all shows), not just that one episode.
+     */
+    private fun syncUpcomingItemsWithQueue(queueEpisodes: List<Episode>, excludeIds: Set<String> = emptySet()) {
+        checkMainThread()
+        val currentItem = rawPlayer.currentMediaItem ?: return
+        if (PlaybackStateManager.state.value.currentEpisode?.isLive == true) return
+        val currentEpId = currentItem.mediaId
+
+        val upcoming = queueEpisodes
+            .filter { it.id != currentEpId && it.id !in excludeIds && !it.isCompleted && !it.isDismissed && !it.isLive }
+            .take(UPCOMING_QUEUE_ITEMS)
+
+        val newUpcomingItems = upcoming.map { createPlayableEpisodeItem(it) }
+        val currentIndex = rawPlayer.currentMediaItemIndex
+        val totalCount = rawPlayer.mediaItemCount
+
+        val existingUpcomingIds = mutableListOf<String>()
+        for (i in (currentIndex + 1) until totalCount) {
+            existingUpcomingIds.add(rawPlayer.getMediaItemAt(i).mediaId)
+        }
+        val newUpcomingIds = newUpcomingItems.map { it.mediaId }
+
+        if (existingUpcomingIds != newUpcomingIds) {
+            if (totalCount > currentIndex + 1) {
+                rawPlayer.removeMediaItems(currentIndex + 1, totalCount)
+            }
+            if (newUpcomingItems.isNotEmpty()) {
+                rawPlayer.addMediaItems(newUpcomingItems)
+            }
         }
     }
 
@@ -749,7 +772,7 @@ class PlaybackService : MediaLibraryService() {
         liveInactivityJob = null
     }
 
-    private fun loadAndPlayEpisode(episodeId: String, podcastId: String?) {
+    private fun loadAndPlayEpisode(episodeId: String, podcastId: String?, startPositionOverrideMs: Long? = null) {
         val currentId = PlaybackStateManager.state.value.currentEpisode?.id
         if (currentId != null && currentId != episodeId) {
             recordPlaybackHistory(currentId)
@@ -771,7 +794,9 @@ class PlaybackService : MediaLibraryService() {
                 checkMainThread()
                 applyShowSettings(episode, podcast)
                 val skipIntro = if (episode.isLive) 0 else (podcast?.skipIntroSeconds ?: 0)
-                val startPosMs = if (episode.playbackPositionSeconds > 0) {
+                val startPosMs = if (startPositionOverrideMs != null && !episode.isLive) {
+                    startPositionOverrideMs
+                } else if (episode.playbackPositionSeconds > 0) {
                     episode.playbackPositionSeconds * 1000L
                 } else if (skipIntro > 0) {
                     skipIntro * 1000L
@@ -1145,8 +1170,11 @@ class PlaybackService : MediaLibraryService() {
                 android.util.Log.w("PlaybackService", "Just-in-time news feed update timed out or failed; playing existing queued episode", e)
             }
 
-            // Pick the latest top queue episode after refresh
-            val refreshedNext = database.queueDao().getQueueEpisodesSync().firstOrNull() ?: next
+            // Pick the latest top queue episode after refresh, skipping the episode that just ended
+            // (it can still be at the top of the queue until its "finished" write lands).
+            val finishedId = PlaybackStateManager.state.value.currentEpisode?.id
+            val refreshedNext = database.queueDao().getQueueEpisodesSync()
+                .firstOrNull { it.id != finishedId && !it.isCompleted && !it.isDismissed } ?: next
             serviceScope.launch(Dispatchers.Main) {
                 loadAndPlayEpisode(refreshedNext.id, refreshedNext.podcastId)
             }

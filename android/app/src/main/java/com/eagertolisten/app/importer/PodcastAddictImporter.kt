@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.util.Xml
 import com.eagertolisten.app.data.EagerDatabase
+import androidx.room.withTransaction
 import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.EpisodeId
 import com.eagertolisten.app.data.model.FeedUrl
@@ -236,7 +237,20 @@ class PodcastAddictImporter(private val context: Context) {
                 }
 
                 if (episodesToInsert.isNotEmpty()) {
-                    episodeDao.insertEpisodes(episodesToInsert)
+                    val now = System.currentTimeMillis()
+                    db.withTransaction {
+                        // Insert in chunks so very large backups don't build one giant statement.
+                        episodesToInsert.chunked(500).forEach { episodeDao.insertEpisodes(it) }
+                        // insertEpisodes ignores rows that already exist (subscribed or OPML-imported
+                        // before this backup), so carry the backup's played state / position onto them.
+                        for (ep in episodesToInsert) {
+                            if (ep.isCompleted) {
+                                episodeDao.applyImportedPlayed(ep.id, now)
+                            } else if (ep.playbackPositionSeconds > 0) {
+                                episodeDao.applyImportedPosition(ep.id, ep.playbackPositionSeconds, now)
+                            }
+                        }
+                    }
                     episodesCount = episodesToInsert.size
                 }
             }

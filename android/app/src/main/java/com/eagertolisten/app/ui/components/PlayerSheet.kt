@@ -124,7 +124,10 @@ fun PlayerSheet(
 
     val effectiveFundingUrl = episode.fundingUrl ?: currentPodcast?.customDonationUrl ?: currentPodcast?.fundingUrl
     val effectiveValueJson = episode.valueJson ?: currentPodcast?.valueJson
-    val podcastValue = remember(effectiveValueJson) { PodcastValue.fromJson(effectiveValueJson) }
+    // Boost is hidden until Lightning boosts work (FeatureFlags.V4V_BOOST); null hides every Boost button here.
+    val podcastValue = remember(effectiveValueJson) {
+        if (com.eagertolisten.app.FeatureFlags.V4V_BOOST) PodcastValue.fromJson(effectiveValueJson) else null
+    }
     var showBoostSheet by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -645,46 +648,40 @@ fun PlayerSheet(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
+                                                    // Same emphasis as the Player tab: Support is primary, Boost secondary.
                                                     if (!effectiveFundingUrl.isNullOrBlank()) {
-                                                        OutlinedButton(
-                                                            onClick = {
-                                                                val safeUrl = if (!effectiveFundingUrl.startsWith("http://") && !effectiveFundingUrl.startsWith("https://")) {
-                                                                    "https://$effectiveFundingUrl"
-                                                                } else effectiveFundingUrl
-                                                                runCatching {
-                                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-                                                                }
-                                                            },
-                                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                                                        Button(
+                                                            onClick = { openSupportUrl(context, effectiveFundingUrl) },
+                                                            colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
                                                             shape = RoundedCornerShape(10.dp),
                                                             modifier = Modifier.weight(1f)
                                                         ) {
                                                             Icon(
                                                                 imageVector = Icons.Default.Favorite,
                                                                 contentDescription = null,
-                                                                tint = BurntOrange,
+                                                                tint = TextPrimary,
                                                                 modifier = Modifier.size(15.dp)
                                                             )
                                                             Spacer(modifier = Modifier.width(6.dp))
-                                                            Text("Support Show", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                            Text("Support Show", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                                                         }
                                                     }
 
                                                     if (podcastValue != null) {
-                                                        Button(
+                                                        OutlinedButton(
                                                             onClick = { showBoostSheet = true },
-                                                            colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
                                                             shape = RoundedCornerShape(10.dp),
                                                             modifier = Modifier.weight(1f)
                                                         ) {
                                                             Icon(
                                                                 imageVector = Icons.Default.ElectricBolt,
                                                                 contentDescription = null,
-                                                                tint = TextPrimary,
+                                                                tint = BurntOrange,
                                                                 modifier = Modifier.size(15.dp)
                                                             )
                                                             Spacer(modifier = Modifier.width(6.dp))
-                                                            Text("⚡ Boost", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                                            Text("Boost", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                                         }
                                                     }
                                                 }

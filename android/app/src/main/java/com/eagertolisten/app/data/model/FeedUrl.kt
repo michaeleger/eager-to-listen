@@ -3,6 +3,18 @@ package com.eagertolisten.app.data.model
 import java.net.URI
 
 object FeedUrl {
+    /**
+     * True when two feed URLs point at the same feed for "already subscribed?" checks:
+     * normalized, ignoring http vs https and letter case.
+     */
+    fun sameFeed(a: String, b: String): Boolean {
+        fun key(url: String): String = normalize(url).ifBlank { url.trim() }
+            .removePrefix("https://").removePrefix("http://")
+            .lowercase()
+        val ka = key(a)
+        return ka.isNotEmpty() && ka == key(b)
+    }
+
     fun normalize(rawUrl: String): String {
         val trimmed = rawUrl.trim()
         if (trimmed.isBlank()) return ""

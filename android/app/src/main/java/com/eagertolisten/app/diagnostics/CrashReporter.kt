@@ -155,8 +155,17 @@ object CrashReporter {
             "logcat", "-d", "-v", "time", "-t", MAX_LOG_LINES.toString(),
             "--pid=${android.os.Process.myPid()}"
         ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        process.waitFor(2, TimeUnit.SECONDS)
+        // Read on a helper thread so a stuck logcat can't hang the crashing app past ~2 seconds.
+        var output = ""
+        val reader = Thread {
+            output = try {
+                process.inputStream.bufferedReader().use { it.readText() }
+            } catch (_: Throwable) {
+                ""
+            }
+        }.apply { isDaemon = true; start() }
+        reader.join(TimeUnit.SECONDS.toMillis(2))
+        if (reader.isAlive) process.destroy()
         output.takeLast(MAX_TRACE_CHARS)
     } catch (_: Throwable) {
         ""

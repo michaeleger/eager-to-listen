@@ -207,8 +207,8 @@ fun InspirationStudioSheet(
                                     val ep = db.episodeDao().getEpisodeByIdSync(clip.episodeId)
                                     if (ep != null) {
                                         withContext(Dispatchers.Main) {
-                                            PlaybackController.playEpisode(context, ep, clip.podcastId)
-                                            PlaybackController.seekTo(clip.timestampSeconds * 1000L)
+                                            // Start right at the bookmark (a seek here would be overwritten by the async load)
+                                            PlaybackController.playEpisode(context, ep, clip.podcastId, startPositionMs = clip.timestampSeconds * 1000L)
                                         }
                                     }
                                 }

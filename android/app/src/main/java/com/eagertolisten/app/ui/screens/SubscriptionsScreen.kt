@@ -446,7 +446,10 @@ fun SubscriptionsScreen(
                 // Support Show & Boost Actions Banner. Support (a plain donate link that always works)
                 // is the filled, primary button; Boost is secondary.
                 val supportUrl = podcast.supportUrl()
-                val podcastValue = remember(podcast.valueJson) { PodcastValue.fromJson(podcast.valueJson) }
+                // Boost hidden until Lightning boosts work (FeatureFlags.V4V_BOOST)
+                val podcastValue = remember(podcast.valueJson) {
+                    if (com.eagertolisten.app.FeatureFlags.V4V_BOOST) PodcastValue.fromJson(podcast.valueJson) else null
+                }
 
                 if (!supportUrl.isNullOrBlank() || podcastValue != null) {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -625,7 +628,7 @@ fun SubscriptionsScreen(
                                         }
 
                                         val effectiveValJson = ep.valueJson ?: podcast.valueJson
-                                        if (effectiveValJson != null) {
+                                        if (com.eagertolisten.app.FeatureFlags.V4V_BOOST && effectiveValJson != null) {
                                             IconButton(
                                                 onClick = {
                                                     boostPodcast = podcast

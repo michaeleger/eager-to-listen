@@ -111,7 +111,7 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun subscribe(feedUrl: String, priority: Int = 3) {
-        val currentSubscribed = subscribedPodcasts.value.any { it.feedUrl.equals(feedUrl.trim(), ignoreCase = true) }
+        val currentSubscribed = subscribedPodcasts.value.any { com.eagertolisten.app.data.model.FeedUrl.sameFeed(it.feedUrl, feedUrl) }
         if (currentSubscribed) {
             _userMessage.value = "Already subscribed to this podcast"
             return

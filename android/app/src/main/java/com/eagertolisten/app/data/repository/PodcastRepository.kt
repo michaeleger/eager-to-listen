@@ -740,7 +740,21 @@ class PodcastRepository(context: Context) {
 
     suspend fun updatePlaybackProgress(episodeId: String, positionSec: Long, isCompleted: Boolean) = withContext(Dispatchers.IO) {
         if (isCompleted) {
-            markEpisodeFinished(episodeId)
+            val existing = episodeDao.getEpisodeByIdSync(episodeId)
+            if (existing?.isCompleted == true) {
+                // Already finished. The progress tracker reports "completed" on every 10s tick in the
+                // last 2%; don't redo the finish work (queue rebuild, file delete) each time.
+                return@withContext
+            }
+            val playingNow = PlaybackStateManager.state.value.let { it.isPlaying && it.currentEpisode?.id == episodeId }
+            if (playingNow) {
+                // Still playing the last 2%: record it as played, but leave the downloaded file and the
+                // queue rebuild to the real end of the episode (PlaybackService.onEpisodeFinished),
+                // so the audio isn't deleted out from under the player.
+                episodeDao.markEpisodeFinished(episodeId, System.currentTimeMillis())
+            } else {
+                markEpisodeFinished(episodeId)
+            }
         } else {
             val existing = episodeDao.getEpisodeByIdSync(episodeId)
             // Invariant I2: Never convert isCompleted = true to false except explicit mark unplayed

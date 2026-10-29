@@ -240,7 +240,7 @@ fun DiscoverScreen(
                 }
 
                 items(searchResults) { result ->
-                    val isSubscribed = subscribedPodcasts.any { it.feedUrl.equals(result.feedUrl, ignoreCase = true) }
+                    val isSubscribed = subscribedPodcasts.any { com.eagertolisten.app.data.model.FeedUrl.sameFeed(it.feedUrl, result.feedUrl) }
 
                     Card(
                         colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
@@ -323,7 +323,7 @@ fun DiscoverScreen(
             }
 
             items(promotedPodcasts) { feed ->
-                val isSubscribed = subscribedPodcasts.any { it.feedUrl.equals(feed.feedUrl, ignoreCase = true) }
+                val isSubscribed = subscribedPodcasts.any { com.eagertolisten.app.data.model.FeedUrl.sameFeed(it.feedUrl, feed.feedUrl) }
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
