@@ -72,6 +72,10 @@ import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.Podcast
 import com.eagertolisten.app.data.model.PodcastValue
 import com.eagertolisten.app.ui.components.BoostSheet
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.TextButton
+import com.eagertolisten.app.ui.components.openSupportUrl
+import com.eagertolisten.app.ui.components.supportUrl
 import com.eagertolisten.app.ui.components.PriorityBadge
 import com.eagertolisten.app.ui.theme.BurntOrange
 import com.eagertolisten.app.ui.theme.ForestGreenDarkest
@@ -320,7 +324,18 @@ fun SubscriptionsScreen(
                                 )
                             }
 
-                            // Actions: Refresh & Edit Feed Settings
+                            // Actions: Support (when the show has a donate link), Refresh & Edit Feed Settings
+                            val rowSupportUrl = podcast.supportUrl()
+                            if (rowSupportUrl != null) {
+                                IconButton(onClick = { openSupportUrl(context, rowSupportUrl) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Favorite,
+                                        contentDescription = "Support ${podcast.title}",
+                                        tint = BurntOrange
+                                    )
+                                }
+                            }
+
                             IconButton(onClick = { feedViewModel.refreshFeed(podcast.id) }) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
@@ -355,6 +370,21 @@ fun SubscriptionsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
+                // Back to the podcast list (the sheet covers the bottom tabs, so give it an obvious exit)
+                TextButton(
+                    onClick = { feedViewModel.selectPodcast(null) },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = null,
+                        tint = BurntOrange,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("All Podcasts", color = BurntOrange, fontWeight = FontWeight.Bold)
+                }
+
                 // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -413,8 +443,9 @@ fun SubscriptionsScreen(
                     }
                 }
 
-                // Support Show & Boost Actions Banner
-                val supportUrl = podcast.customDonationUrl ?: podcast.fundingUrl
+                // Support Show & Boost Actions Banner. Support (a plain donate link that always works)
+                // is the filled, primary button; Boost is secondary.
+                val supportUrl = podcast.supportUrl()
                 val podcastValue = remember(podcast.valueJson) { PodcastValue.fromJson(podcast.valueJson) }
 
                 if (!supportUrl.isNullOrBlank() || podcastValue != null) {
@@ -423,49 +454,42 @@ fun SubscriptionsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (!supportUrl.isNullOrBlank()) {
-                            OutlinedButton(
-                                onClick = {
-                                    val safeUrl = if (!supportUrl.startsWith("http://") && !supportUrl.startsWith("https://")) {
-                                        "https://$supportUrl"
-                                    } else supportUrl
-                                    runCatching {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-                                    }
-                                },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                        if (supportUrl != null) {
+                            Button(
+                                onClick = { openSupportUrl(context, supportUrl) },
+                                colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Favorite,
                                     contentDescription = null,
-                                    tint = BurntOrange,
+                                    tint = TextPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Support Show", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                Text("Support Show", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             }
                         }
 
                         if (podcastValue != null) {
-                            Button(
+                            OutlinedButton(
                                 onClick = {
                                     boostPodcast = podcast
                                     boostEpisode = null
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ElectricBolt,
                                     contentDescription = null,
-                                    tint = TextPrimary,
+                                    tint = BurntOrange,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("⚡ Boost", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Boost", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

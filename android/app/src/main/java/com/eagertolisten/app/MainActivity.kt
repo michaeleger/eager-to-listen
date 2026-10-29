@@ -200,7 +200,13 @@ class MainActivity : ComponentActivity() {
                                         NavigationTab.values().forEachIndexed { index, tab ->
                                             NavigationBarItem(
                                                 selected = selectedTab == index,
-                                                onClick = { selectedTab = index },
+                                                onClick = {
+                                                    // Tapping Podcasts again closes an open show and returns to the list
+                                                    if (tab == NavigationTab.SUBSCRIPTIONS) {
+                                                        feedViewModel.selectPodcast(null)
+                                                    }
+                                                    selectedTab = index
+                                                },
                                                 icon = {
                                                     Icon(
                                                         imageVector = tab.icon,
@@ -269,6 +275,13 @@ class MainActivity : ComponentActivity() {
                                 onSetSpeed = { playerViewModel.setSpeed(it) },
                                 onPlayQueueEpisode = { ep ->
                                     playerViewModel.playEpisode(ep, ep.podcastId)
+                                },
+                                onOpenPodcast = currentPodcast?.let { podcast ->
+                                    {
+                                        playerViewModel.setExpanded(false)
+                                        selectedTab = NavigationTab.SUBSCRIPTIONS.ordinal
+                                        feedViewModel.selectPodcast(podcast)
+                                    }
                                 },
                                 onDismiss = { playerViewModel.setExpanded(false) }
                             )

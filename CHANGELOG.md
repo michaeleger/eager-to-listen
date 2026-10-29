@@ -20,6 +20,10 @@ Fixes from the first round of 0.9.1 tester reports.
 - **Readable skip labels**: the seconds now sit under the rewind/forward icons at a larger size instead of on top of them.
 - **Hide the "Save Idea / Bookmark" button** if you don't use it: Settings > Player Controls.
 
+### 🎙 Podcasts & Supporting Shows
+- **Easier way back to the podcast list**: a show's page now has an "All Podcasts" back button at the top (it covers the bottom tabs, so swiping down was the only way out). Tapping the Podcasts tab again also closes an open show, and tapping the show name on Now Playing jumps straight to that show's page.
+- **Support Show is easier to find**: shows with a donate link get a ♥ button right on their row in the podcast list, and "Support Show" is now the filled, primary button on the show page and Now Playing (Boost is the secondary button).
+
 ### ✅ Played Status
 - **Mark as played / unplayed** from the ⋮ menu on any episode, in the Queue tabs and in a podcast's episode list.
 - **Mark this & older as played / Mark this & newer as played** for a podcast, with a confirmation first, for catching up after an import.

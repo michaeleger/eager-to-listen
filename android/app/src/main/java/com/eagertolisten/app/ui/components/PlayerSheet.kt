@@ -114,6 +114,7 @@ fun PlayerSheet(
     onSeekForward: () -> Unit,
     onSetSpeed: (Float) -> Unit,
     onPlayQueueEpisode: (Episode) -> Unit = {},
+    onOpenPodcast: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -343,13 +344,20 @@ fun PlayerSheet(
 
                         Spacer(modifier = Modifier.height(6.dp))
 
+                        // Tap the show name to close the player and open this show's page in Podcasts
                         Text(
-                            text = episode.podcastTitle,
+                            text = if (onOpenPodcast != null) "${episode.podcastTitle}  ›" else episode.podcastTitle,
                             style = MaterialTheme.typography.bodyMedium,
                             color = BurntOrange,
                             maxLines = 1,
                             textAlign = TextAlign.Center,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (onOpenPodcast != null) {
+                                Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { onOpenPodcast() }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            } else Modifier
                         )
 
                         if (!effectiveFundingUrl.isNullOrBlank() || podcastValue != null) {
@@ -358,46 +366,40 @@ fun PlayerSheet(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // Support (plain donate link) is the filled, primary button; Boost is secondary.
                                 if (!effectiveFundingUrl.isNullOrBlank()) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            val safeUrl = if (!effectiveFundingUrl.startsWith("http://") && !effectiveFundingUrl.startsWith("https://")) {
-                                                "https://$effectiveFundingUrl"
-                                            } else effectiveFundingUrl
-                                            runCatching {
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safeUrl)))
-                                            }
-                                        },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                                    Button(
+                                        onClick = { openSupportUrl(context, effectiveFundingUrl) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
                                         shape = RoundedCornerShape(20.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Favorite,
                                             contentDescription = null,
-                                            tint = BurntOrange,
-                                            modifier = Modifier.size(15.dp)
+                                            tint = TextPrimary,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Support Show", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Support Show", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                                     }
                                 }
 
                                 if (podcastValue != null) {
-                                    Button(
+                                    OutlinedButton(
                                         onClick = { showBoostSheet = true },
-                                        colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
                                         shape = RoundedCornerShape(20.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.ElectricBolt,
                                             contentDescription = null,
-                                            tint = TextPrimary,
-                                            modifier = Modifier.size(15.dp)
+                                            tint = BurntOrange,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("⚡ Boost", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                        Text("Boost", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
