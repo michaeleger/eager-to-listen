@@ -1047,7 +1047,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Migrate your podcasts, playback history, and per-feed preferences directly from a Podcast Addict backup (.backup / .db) or standard OPML file.",
+                        text = "Bring your shows over from another app. With history: a Podcast Addict backup (.backup) or an AntennaPod database export (.db) brings played episodes, resume points and per-show speed. Subscriptions only: an OPML file from Podverse, Pocket Casts, Castbox or any other app.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
@@ -1101,7 +1101,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(8.dp),
                         enabled = !isImporting
                     ) {
-                        Text("Import Subscriptions (Backup / OPML)", fontWeight = FontWeight.Bold)
+                        Text("Import from Another App (Backup / OPML)", fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(

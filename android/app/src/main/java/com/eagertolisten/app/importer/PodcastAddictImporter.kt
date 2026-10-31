@@ -27,6 +27,15 @@ data class ImportResult(
     val message: String
 )
 
+/**
+ * Imports subscriptions and listening history from another podcast app's export file:
+ *  - Podcast Addict full backup (.backup ZIP) or its database (.db): shows, played status,
+ *    resume points, per-show speed.
+ *  - AntennaPod "Database export" (.db): shows, played status, resume points, per-show speed,
+ *    skip intro / ending.
+ *  - OPML from any app (Podverse, Pocket Casts, Castbox, ...): subscriptions only. Malformed OPML
+ *    (e.g. Podverse's unescaped quotes) falls back to [OpmlRecovery].
+ */
 class PodcastAddictImporter(private val context: Context) {
 
     private val db = EagerDatabase.getInstance(context)
@@ -60,10 +69,16 @@ class PodcastAddictImporter(private val context: Context) {
                 val result = importFromSqliteDb(tempFile)
                 Result.success(result)
             } else {
-                // Try parsing as OPML XML
-                tempFile.inputStream().use { stream ->
-                    val result = importFromOpml(stream)
-                    Result.success(result)
+                // OPML from any app. If a strict parse fails (Podverse's exporter can leave quotes
+                // unescaped), recover the outlines from the raw text instead.
+                val text = tempFile.readText(Charsets.UTF_8)
+                try {
+                    Result.success(importFromOpml(text.byteInputStream()))
+                } catch (e: Exception) {
+                    val outlines = OpmlRecovery.extractOutlines(text)
+                    if (outlines.isEmpty()) throw e
+                    android.util.Log.w("PodcastAddictImporter", "OPML didn't parse cleanly; recovered ${outlines.size} feeds", e)
+                    Result.success(importRecoveredOpml(outlines))
                 }
             }
         } catch (e: Exception) {
@@ -126,6 +141,10 @@ class PodcastAddictImporter(private val context: Context) {
                 while (cursor.moveToNext()) {
                     tables.add(cursor.getString(0))
                 }
+            }
+
+            if (AntennaPodFormat.isAntennaPodSchema(tables)) {
+                return importFromAntennaPod(sqlite)
             }
 
             val podcastTable = tables.firstOrNull { it.equals("podcasts", ignoreCase = true) }
@@ -275,23 +294,8 @@ class PodcastAddictImporter(private val context: Context) {
                     }
                 }
 
-                if (episodesToInsert.isNotEmpty()) {
-                    val now = System.currentTimeMillis()
-                    db.withTransaction {
-                        // Insert in chunks so very large backups don't build one giant statement.
-                        episodesToInsert.chunked(500).forEach { episodeDao.insertEpisodes(it) }
-                        // insertEpisodes ignores rows that already exist (subscribed or OPML-imported
-                        // before this backup), so carry the backup's played state / position onto them.
-                        for (ep in episodesToInsert) {
-                            if (ep.isCompleted) {
-                                episodeDao.applyImportedPlayed(ep.id, ep.completedAt, now)
-                            } else if (ep.playbackPositionSeconds > 0) {
-                                episodeDao.applyImportedPosition(ep.id, ep.playbackPositionSeconds, now)
-                            }
-                        }
-                    }
-                    episodesCount = episodesToInsert.size
-                }
+                saveImportedEpisodes(episodesToInsert)
+                episodesCount = episodesToInsert.size
             }
 
             return ImportResult(
@@ -360,6 +364,147 @@ class PodcastAddictImporter(private val context: Context) {
             podcastsImported = importedPodcasts.size,
             episodesImported = 0,
             message = "Successfully imported ${importedPodcasts.size} podcast feeds from OPML"
+        )
+    }
+
+    /**
+     * Inserts imported episodes (in chunks) and carries played status / resume points onto episodes
+     * that already exist because the show was subscribed or OPML-imported earlier.
+     */
+    private suspend fun saveImportedEpisodes(episodesToInsert: List<Episode>) {
+        if (episodesToInsert.isEmpty()) return
+        val now = System.currentTimeMillis()
+        db.withTransaction {
+            episodesToInsert.chunked(500).forEach { episodeDao.insertEpisodes(it) }
+            for (ep in episodesToInsert) {
+                if (ep.isCompleted) {
+                    episodeDao.applyImportedPlayed(ep.id, ep.completedAt, now)
+                } else if (ep.playbackPositionSeconds > 0) {
+                    episodeDao.applyImportedPosition(ep.id, ep.playbackPositionSeconds, now)
+                }
+            }
+        }
+    }
+
+    /** AntennaPod "Database export": see [AntennaPodFormat] for the schema. */
+    private suspend fun importFromAntennaPod(sqlite: SQLiteDatabase): ImportResult {
+        val feedIdMap = mutableMapOf<Long, String>()       // AntennaPod feed id -> Eager podcast id
+        val feedTitleMap = mutableMapOf<String, String>()
+        val podcastsToInsert = mutableListOf<Podcast>()
+
+        sqlite.rawQuery("SELECT * FROM Feeds", null).use { cursor ->
+            android.util.Log.i("PodcastAddictImporter", "AntennaPod Feeds columns: ${cursor.columnNames.joinToString()}")
+            val hasState = cursor.getColumnIndex("state") >= 0
+            while (cursor.moveToNext()) {
+                val feedUrl = getColumnString(cursor, "download_url")
+                val state = if (hasState) getColumnInt(cursor, 0, "state") else null
+                if (!AntennaPodFormat.isImportableFeed(state, feedUrl)) continue
+                val apId = getColumnLong(cursor, -1L, "id")
+                val eagerId = FeedUrl.normalize(feedUrl!!).ifBlank { feedUrl.trim() }
+                val title = getColumnString(cursor, "custom_title")?.takeIf { it.isNotBlank() }
+                    ?: getColumnString(cursor, "title") ?: "Podcast"
+                val category = ""
+                feedIdMap[apId] = eagerId
+                feedTitleMap[eagerId] = title
+                podcastsToInsert.add(
+                    Podcast(
+                        id = eagerId,
+                        feedUrl = eagerId,
+                        title = title,
+                        author = getColumnString(cursor, "author") ?: "",
+                        artworkUrl = getColumnString(cursor, "image_url") ?: "",
+                        description = "",
+                        priority = 3,
+                        skipIntroSeconds = AntennaPodFormat.skipSeconds(getColumnInt(cursor, 0, "feed_skip_intro")),
+                        skipOutroSeconds = AntennaPodFormat.skipSeconds(getColumnInt(cursor, 0, "feed_skip_ending")),
+                        playbackSpeed = AntennaPodFormat.speedOrNull(getColumnFloat(cursor, -1f, "feed_playback_speed")) ?: 1.0f,
+                        autoAddToQueue = true,
+                        category = FeedParser.effectiveCategory(title, category),
+                        playOrderStrategy = FeedParser.inferPlayOrderStrategy(title, category = category)
+                    )
+                )
+            }
+        }
+        if (podcastsToInsert.isNotEmpty()) podcastDao.insertPodcastsIgnore(podcastsToInsert)
+
+        // Older exports may lack the history column; only select what exists.
+        val mediaColumns = mutableSetOf<String>()
+        sqlite.rawQuery("PRAGMA table_info(FeedMedia)", null).use { c ->
+            while (c.moveToNext()) mediaColumns.add(c.getString(1))
+        }
+        val completionCol = if ("playback_completion_date" in mediaColumns) "m.playback_completion_date" else "0"
+        val lastPlayedCol = if ("last_played_time" in mediaColumns) "m.last_played_time" else "0"
+
+        val episodesToInsert = mutableListOf<Episode>()
+        val sql = """
+            SELECT i.feed, i.title, i.pubDate, i.read, i.item_identifier,
+                   m.download_url, m.duration, m.position, $completionCol, $lastPlayedCol
+            FROM FeedItems i LEFT JOIN FeedMedia m ON m.feeditem = i.id
+        """.trimIndent()
+        sqlite.rawQuery(sql, null).use { c ->
+            while (c.moveToNext()) {
+                val podcastId = feedIdMap[c.getLong(0)] ?: continue
+                val audioUrl = if (c.isNull(5)) "" else c.getString(5)
+                val guid = (if (c.isNull(4)) null else c.getString(4))?.takeIf { it.isNotBlank() } ?: audioUrl
+                if (guid.isBlank()) continue
+                val pubDate = if (c.isNull(2)) 0L else c.getLong(2)
+                val durationSec = if (c.isNull(6)) 0L else (c.getLong(6) / 1000L).coerceAtLeast(0L)
+                val posSec = if (c.isNull(7)) 0L else (c.getLong(7) / 1000L).coerceAtLeast(0L)
+                val read = if (c.isNull(3)) 0 else c.getInt(3)
+                val isCompleted = read == AntennaPodFormat.READ_PLAYED ||
+                    (durationSec > 0 && posSec >= durationSec * 0.95)
+                val playedAt = AntennaPodFormat.playedAtMs(
+                    completionDate = if (c.isNull(8)) 0L else c.getLong(8),
+                    lastPlayedTime = if (c.isNull(9)) 0L else c.getLong(9),
+                    pubDate = pubDate
+                )
+                episodesToInsert.add(
+                    Episode(
+                        id = EpisodeId.of(podcastId = podcastId, guid = guid, enclosureUrl = audioUrl),
+                        podcastId = podcastId,
+                        podcastTitle = feedTitleMap[podcastId] ?: "Podcast",
+                        title = if (c.isNull(1)) "Episode" else c.getString(1),
+                        audioUrl = audioUrl,
+                        publishedAt = pubDate,
+                        durationSeconds = durationSec,
+                        playbackPositionSeconds = if (isCompleted) 0L else posSec,
+                        isCompleted = isCompleted,
+                        completedAt = if (isCompleted) playedAt else null
+                    )
+                )
+            }
+        }
+        saveImportedEpisodes(episodesToInsert)
+        val played = episodesToInsert.count { it.isCompleted }
+        return ImportResult(
+            podcastsImported = podcastsToInsert.size,
+            episodesImported = episodesToInsert.size,
+            message = "Imported ${podcastsToInsert.size} podcasts and ${episodesToInsert.size} episodes ($played played) from AntennaPod"
+        )
+    }
+
+    /** Subscriptions recovered from an OPML file a strict XML parser rejected. */
+    private suspend fun importRecoveredOpml(outlines: List<OpmlRecovery.Outline>): ImportResult {
+        val podcasts = outlines.map { o ->
+            val id = FeedUrl.normalize(o.xmlUrl).ifBlank { o.xmlUrl }
+            Podcast(
+                id = id,
+                feedUrl = id,
+                title = o.title,
+                author = "",
+                artworkUrl = "",
+                description = "",
+                category = "General",
+                priority = 3,
+                autoAddToQueue = true,
+                playOrderStrategy = FeedParser.inferPlayOrderStrategy(o.title, category = "")
+            )
+        }
+        if (podcasts.isNotEmpty()) podcastDao.insertPodcastsIgnore(podcasts)
+        return ImportResult(
+            podcastsImported = podcasts.size,
+            episodesImported = 0,
+            message = "Imported ${podcasts.size} podcast feeds (the OPML file had formatting errors, so it was read in recovery mode)"
         )
     }
 
