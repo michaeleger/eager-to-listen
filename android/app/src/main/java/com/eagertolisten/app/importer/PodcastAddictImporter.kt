@@ -44,11 +44,13 @@ class PodcastAddictImporter(private val context: Context) {
             }
 
             if (isZipFile(tempFile)) {
-                // Podcast Addict full .backup file (ZIP container with podcastAddict.db)
-                val dbFile = extractDbFromZip(tempFile)
-                    ?: return@withContext Result.failure(Exception("No SQLite database found inside Podcast Addict backup"))
+                // Podcast Addict full .backup file (ZIP with podcastAddict.db + preferences XML)
+                val (dbFile, prefsXml) = extractFromZip(tempFile)
+                if (dbFile == null) {
+                    return@withContext Result.failure(Exception("No SQLite database found inside Podcast Addict backup"))
+                }
                 try {
-                    val result = importFromSqliteDb(dbFile)
+                    val result = importFromSqliteDb(dbFile, prefsXml)
                     Result.success(result)
                 } finally {
                     dbFile.delete()
@@ -86,26 +88,33 @@ class PodcastAddictImporter(private val context: Context) {
         return String(header).startsWith("SQLite format 3")
     }
 
-    private fun extractDbFromZip(zipFile: File): File? {
+    /**
+     * Pulls the SQLite database and the preferences XML out of a Podcast Addict backup.
+     * The XML comes first in the ZIP and its name also contains "podcastaddict", so the old
+     * name check grabbed the XML as the database and every full-backup import failed.
+     */
+    private fun extractFromZip(zipFile: File): Pair<File?, String?> {
+        var dbFile: File? = null
+        var prefsXml: String? = null
         ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
-                val name = entry.name.lowercase()
-                if (name.endsWith(".db") || name.contains("podcastaddict") || name.endsWith(".sqlite")) {
+                val name = entry.name
+                if (!entry.isDirectory && dbFile == null && PodcastAddictFormat.isDatabaseEntry(name)) {
                     val extracted = File(context.cacheDir, "extracted_${System.currentTimeMillis()}.db")
-                    FileOutputStream(extracted).use { out ->
-                        zis.copyTo(out)
-                    }
-                    return extracted
+                    FileOutputStream(extracted).use { out -> zis.copyTo(out) }
+                    if (isSqliteDb(extracted)) dbFile = extracted else extracted.delete()
+                } else if (!entry.isDirectory && prefsXml == null && PodcastAddictFormat.isPreferencesEntry(name)) {
+                    prefsXml = zis.readBytes().toString(Charsets.UTF_8)
                 }
                 zis.closeEntry()
                 entry = zis.nextEntry
             }
         }
-        return null
+        return dbFile to prefsXml
     }
 
-    private suspend fun importFromSqliteDb(dbFile: File): ImportResult {
+    private suspend fun importFromSqliteDb(dbFile: File, prefsXml: String? = null): ImportResult {
         val sqlite = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
         var podcastsCount = 0
         var episodesCount = 0
@@ -134,20 +143,32 @@ class PodcastAddictImporter(private val context: Context) {
             val podcastIdMap = mutableMapOf<String, String>()
             val podcastTitleMap = mutableMapOf<String, String>()
             val podcastsToInsert = mutableListOf<Podcast>()
+            val perShowSpeeds = PodcastAddictFormat.parsePerShowSpeeds(prefsXml)
 
             sqlite.rawQuery("SELECT * FROM $podcastTable", null).use { cursor ->
+                android.util.Log.i("PodcastAddictImporter", "Podcast table '$podcastTable' columns: ${cursor.columnNames.joinToString()}")
+                val hasSubscribedColumn = cursor.getColumnIndex("subscribed_status") >= 0
                 while (cursor.moveToNext()) {
+                    // Podcast Addict keeps every show ever browsed; only bring over real subscriptions.
+                    if (hasSubscribedColumn && getColumnInt(cursor, 0, "subscribed_status") != 1) continue
+                    // Virtual (local-folder) shows have no feed to follow.
+                    if (getColumnInt(cursor, 0, "is_virtual") == 1) continue
+
                     val rawId = getColumnString(cursor, "_id", "id", "feed_id") ?: ""
-                    val feedUrl = getColumnString(cursor, "url", "feed_url", "rss_url", "xml_url", "link")
-                    val title = getColumnString(cursor, "name", "title", "podcast_name") ?: "Podcast"
+                    val feedUrl = getColumnString(cursor, "feed_url", "url", "rss_url", "xml_url", "link")
+                    val title = getColumnString(cursor, "custom_name")?.takeIf { it.isNotBlank() }
+                        ?: getColumnString(cursor, "name", "title", "podcast_name") ?: "Podcast"
                     val author = getColumnString(cursor, "author", "artist", "creator")
                     val artworkUrl = getColumnString(cursor, "image_url", "artwork_url", "thumbnail_url", "icon_url")
                     val category = getColumnString(cursor, "category", "categories", "genre") ?: ""
 
-                    val rawPriority = getColumnInt(cursor, 3, "priority", "rating")
-                    val priority = rawPriority.coerceIn(1, 5)
+                    // Podcast Addict's "priority" is 1 for every show (not our 1-5 scale), which made every
+                    // imported show Priority 1 / Hot List. Start everyone at the normal default instead.
+                    val priority = 3
 
-                    val speed = getColumnFloat(cursor, 1.0f, "playback_speed", "speed")
+                    val speed = perShowSpeeds[rawId]
+                        ?: getColumnFloat(cursor, 1.0f, "playback_speed", "speed").takeIf { it in 0.5f..3.0f }
+                        ?: 1.0f
                     val skipIntro = getColumnInt(cursor, 0, "skip_first_seconds", "skip_intro", "skip_first")
                     val skipOutro = getColumnInt(cursor, 0, "skip_last_seconds", "skip_outro", "skip_last")
 
@@ -205,23 +226,30 @@ class PodcastAddictImporter(private val context: Context) {
                         val epId = EpisodeId.of(podcastId = eagerPodcastId, guid = guid, enclosureUrl = audioUrl)
 
                         val pubDate = getColumnLong(cursor, 0L, "publication_date", "pub_date", "date", "published_at")
-                        val durationSecondsRaw = getColumnLong(cursor, 0L, "duration", "total_time", "length")
-                        val duration = if (durationSecondsRaw > 0L) durationSecondsRaw
-                            else getColumnLong(cursor, 0L, "duration_ms") / 1000L
+                        // Podcast Addict's "duration" is TEXT ("32:12"); reading it as a number gave 32 seconds,
+                        // which also made nearly every started episode look finished. Prefer the ms columns.
+                        val duration = PodcastAddictFormat.durationSeconds(
+                            durationMs = getColumnLong(cursor, 0L, "duration_ms"),
+                            rssDurationMs = getColumnLong(cursor, 0L, "rssfeed_duration_ms"),
+                            durationText = getColumnString(cursor, "duration", "total_time", "length")
+                        )
 
-                        val rawPos = getColumnLong(cursor, 0L, "playback_position", "position_to_resume", "position", "progress")
-                        // If position is in milliseconds (> 100_000 and duration < 100_000), convert to seconds
-                        val posSec = if (rawPos > 100_000L && duration > 0L && rawPos > duration) rawPos / 1000L else rawPos
+                        // position_to_resume is always milliseconds in Podcast Addict.
+                        val posSec = if (cursor.getColumnIndex("position_to_resume") >= 0) {
+                            (getColumnLong(cursor, 0L, "position_to_resume") / 1000L).coerceAtLeast(0L)
+                        } else {
+                            val rawPos = getColumnLong(cursor, 0L, "playback_position", "position", "progress")
+                            if (rawPos > 100_000L && duration > 0L && rawPos > duration) rawPos / 1000L else rawPos
+                        }
 
-                        // Played flag. "downloaded" used to be in this list, which is wrong: a downloaded
-                        // episode isn't necessarily played. "seen_status" is the likely Podcast Addict column;
-                        // confirm against a real backup (see the column log above).
+                        // Played flag: seen_status in Podcast Addict (verified). "downloaded" used to be in
+                        // this list, which was wrong: a downloaded episode isn't necessarily played.
                         val playedFlag = getColumnInt(cursor, 0, "seen_status", "read", "played", "is_read")
                         val isCompleted = playedFlag == 1 || (duration > 0 && posSec >= (duration * 0.95))
 
                         // When it was played. Stamping every imported episode with "now" made every show
                         // look just-heard to the queue's fairness rules. Use the backup's last-played date if
-                        // it has one (column name unconfirmed), else the publish date as a stand-in.
+                        // it has one (playbackDate, epoch ms in Podcast Addict), else the publish date.
                         val rawPlayedAt = getColumnLong(cursor, 0L, "playback_date", "playbackDate", "last_played", "last_playback_date")
                         val playedAtMs = when {
                             rawPlayedAt in 1L until 100_000_000_000L -> rawPlayedAt * 1000L  // epoch seconds
