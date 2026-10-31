@@ -169,6 +169,10 @@ class PodcastRepository(context: Context) {
     }
 
     private suspend fun refreshFeedInternal(podcast: Podcast): Result<Unit> {
+        // Local folder shows have no feed to fetch: refreshing rescans the folder.
+        if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(podcast.feedUrl)) {
+            return com.eagertolisten.app.data.local.LocalFolderScanner(appContext).rescan(podcast).map { }
+        }
         return try {
             Log.d("EagerRefresh", "Fetching feed for '${podcast.title}' (ID: ${podcast.id}, URL: ${podcast.feedUrl})")
             val requestBuilder = Request.Builder()
@@ -788,6 +792,24 @@ class PodcastRepository(context: Context) {
         val now = System.currentTimeMillis()
         episodeDao.markEpisodeUnplayed(episodeId, now)
         generateProgrammedQueue()
+    }
+
+    /**
+     * Adds a folder of audio files on this device as a show (Settings > Import). The caller must
+     * have taken a persistable read permission on [treeUri]. Files are never modified or deleted.
+     */
+    suspend fun addLocalFolder(treeUri: android.net.Uri): Result<Podcast> = withContext(Dispatchers.IO) {
+        val result = com.eagertolisten.app.data.local.LocalFolderScanner(appContext).addFolder(treeUri)
+        if (result.isSuccess) {
+            try {
+                generateProgrammedQueue()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("PodcastRepository", "Queue rebuild after adding local folder failed", e)
+            }
+        }
+        result
     }
 
     /** Marks one episode played or unplayed (episode overflow menu). */

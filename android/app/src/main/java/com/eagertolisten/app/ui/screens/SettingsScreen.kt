@@ -219,6 +219,32 @@ fun SettingsScreen(
         }
     }
 
+    // Add a folder of audio files on this device as a show ("virtual feed"). Read-only access.
+    val localFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri: android.net.Uri? ->
+        if (treeUri != null) {
+            scope.launch {
+                isImporting = true
+                importStatusMessage = "Reading folder..."
+                val result = try {
+                    context.contentResolver.takePersistableUriPermission(
+                        treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                    repository.addLocalFolder(treeUri)
+                } catch (e: SecurityException) {
+                    Result.failure(Exception("Android didn't allow lasting access to that folder"))
+                }
+                isImporting = false
+                result.onSuccess { podcast ->
+                    importStatusMessage = "Added '${podcast.title}' as a show. Copy more files into the folder any time, then refresh the show."
+                }.onFailure { err ->
+                    importStatusMessage = "Import failed: ${err.localizedMessage ?: "Unknown error"}"
+                }
+            }
+        }
+    }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: android.net.Uri? ->
@@ -1115,6 +1141,20 @@ fun SettingsScreen(
                     ) {
                         Text("Export Subscriptions (OPML)", fontWeight = FontWeight.SemiBold)
                     }
+
+                    // Local folder shows: kept low-key, it's a niche feature
+                    androidx.compose.material3.TextButton(
+                        onClick = { localFolderLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isImporting
+                    ) {
+                        Text("Add a Folder of Audio Files as a Show", fontWeight = FontWeight.SemiBold, color = BurntOrange)
+                    }
+                    Text(
+                        text = "For archived episodes with no feed. Each file plays as an episode, in filename order. Your files are never changed or deleted.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
                 }
             }
 

@@ -219,9 +219,10 @@ object SyncSerializer {
         deviceId: String,
         writtenAt: Long = System.currentTimeMillis()
     ): JSONObject {
-        val podcasts = ops.getAllPodcastsIncludingUnsubscribed()
-        val episodes = ops.getEpisodesForSync()
-        val manualQueue = ops.getPinnedItems()
+        // Local folder shows point at files on this device only, so they stay out of Drive sync.
+        val podcasts = ops.getAllPodcastsIncludingUnsubscribed().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.id) }
+        val episodes = ops.getEpisodesForSync().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
+        val manualQueue = ops.getPinnedItems().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
         val inspirations = ops.getAllInspirations()
 
         return JSONObject().apply {

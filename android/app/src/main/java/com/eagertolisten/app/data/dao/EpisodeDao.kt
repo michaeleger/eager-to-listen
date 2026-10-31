@@ -198,6 +198,10 @@ interface EpisodeDao {
     """)
     suspend fun applyImportedPosition(episodeId: String, positionSec: Long, timestamp: Long): Int
 
+    // Local folder show: a file that went missing came back
+    @Query("UPDATE episodes SET isDismissed = 0, dismissReason = NULL, updatedAt = :timestamp WHERE id = :episodeId AND dismissReason = 'LOCAL_FILE_MISSING'")
+    suspend fun restoreMissingLocalEpisode(episodeId: String, timestamp: Long = System.currentTimeMillis()): Int
+
     @Query("SELECT id FROM episodes WHERE podcastId = :podcastId AND completedAt = :completedAt AND isDownloaded = 1")
     suspend fun getDownloadedIdsCompletedAt(podcastId: String, completedAt: Long): List<String>
 

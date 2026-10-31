@@ -268,7 +268,9 @@ fun EpisodeItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // With the ⋮ menu present, Download and Remove live in the menu to free up the row.
                 val hasMenu = onSetPlayed != null
-                if (onDownloadClick != null && !hasMenu) {
+                // Local folder files are already on the device: no download / delete-download actions.
+                val isLocal = com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(episode.podcastId)
+                if (onDownloadClick != null && !hasMenu && !isLocal) {
                     IconButton(onClick = onDownloadClick) {
                         Icon(
                             imageVector = if (episode.isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
@@ -306,7 +308,7 @@ fun EpisodeItem(
                         onMarkThisAndOlderPlayed = onMarkThisAndOlderPlayed,
                         onMarkThisAndNewerPlayed = onMarkThisAndNewerPlayed,
                         isDownloaded = episode.isDownloaded,
-                        onToggleDownload = onDownloadClick,
+                        onToggleDownload = if (isLocal) null else onDownloadClick,
                         onRemoveFromQueue = onRemoveClick
                     )
                 }

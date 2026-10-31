@@ -98,6 +98,8 @@ class PodcastDownloadManager(private val context: Context) {
 
         for (ep in queueEpisodes) {
             if (ep.isCompleted || ep.isDismissed || ep.isLive || ep.liveStatus != null) continue
+            // Local folder files are already on the device
+            if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(ep.podcastId)) continue
 
             val podcast = podcastDao.getPodcastByIdSync(ep.podcastId)
             if (podcast?.playOrderStrategy == "NEWS") {
@@ -145,6 +147,8 @@ class PodcastDownloadManager(private val context: Context) {
     private suspend fun downloadEpisodeInternal(episode: Episode): Boolean {
         try {
             if (episode.audioUrl.isBlank()) return false
+            // Local folder files are already on the device; nothing to download.
+            if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(episode.podcastId)) return true
             val safeId = episode.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
             val downloadsDir = getDownloadsDir()
 
@@ -223,6 +227,8 @@ class PodcastDownloadManager(private val context: Context) {
 
     suspend fun deleteDownloadedEpisode(episodeId: String) = withContext(Dispatchers.IO) {
         val ep = episodeDao.getEpisodeByIdSync(episodeId) ?: return@withContext
+        // Never delete the user's own files from a local folder show.
+        if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(ep.podcastId)) return@withContext
         if (ep.localFilePath != null) {
             val file = File(ep.localFilePath)
             if (file.exists()) {
@@ -243,6 +249,7 @@ class PodcastDownloadManager(private val context: Context) {
         val pinnedEpisodeIds = queueItems.filter { it.isManual }.map { it.episodeId }.toSet()
 
         for (ep in downloaded) {
+            if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(ep.podcastId)) continue
             if (ep.isCompleted || ep.isDismissed || (!queueEpisodeIds.contains(ep.id) && !pinnedEpisodeIds.contains(ep.id))) {
                 if (ep.localFilePath != null) {
                     val file = File(ep.localFilePath)

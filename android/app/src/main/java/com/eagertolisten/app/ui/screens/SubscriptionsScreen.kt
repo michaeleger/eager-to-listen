@@ -661,7 +661,8 @@ fun SubscriptionsScreen(
                                             onMarkThisAndOlderPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = true) },
                                             onMarkThisAndNewerPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = false) },
                                             isDownloaded = ep.isDownloaded,
-                                            onToggleDownload = { feedViewModel.toggleEpisodeDownload(ep) }
+                                            onToggleDownload = if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(ep.podcastId)) null
+                                                else ({ feedViewModel.toggleEpisodeDownload(ep) })
                                         )
 
                                         IconButton(onClick = { onPlayEpisode?.invoke(ep) }) {

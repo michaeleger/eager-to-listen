@@ -8,7 +8,9 @@ import java.time.format.DateTimeFormatter
 
 object OpmlExporter {
 
-    fun generateOpml(podcasts: List<Podcast>): String {
+    fun generateOpml(allPodcasts: List<Podcast>): String {
+        // Local folder shows only exist on this device; other apps can't use them.
+        val podcasts = allPodcasts.filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.feedUrl) }
         val now = DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.now().atZone(ZoneOffset.UTC))
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
