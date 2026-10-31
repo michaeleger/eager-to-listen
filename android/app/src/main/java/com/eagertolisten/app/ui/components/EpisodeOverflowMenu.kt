@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,6 +33,9 @@ fun EpisodeOverflowMenu(
     onSetPlayed: (Boolean) -> Unit,
     onMarkThisAndOlderPlayed: (() -> Unit)? = null,
     onMarkThisAndNewerPlayed: (() -> Unit)? = null,
+    isDownloaded: Boolean = false,
+    onToggleDownload: (() -> Unit)? = null,
+    onRemoveFromQueue: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -49,6 +53,28 @@ fun EpisodeOverflowMenu(
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Row actions that used to be separate icons (kept here so episode rows have room for titles)
+            if (onToggleDownload != null) {
+                DropdownMenuItem(
+                    text = { Text(if (isDownloaded) "Delete download" else "Download for offline") },
+                    onClick = {
+                        expanded = false
+                        onToggleDownload()
+                    }
+                )
+            }
+            if (onRemoveFromQueue != null) {
+                DropdownMenuItem(
+                    text = { Text("Remove from queue") },
+                    onClick = {
+                        expanded = false
+                        onRemoveFromQueue()
+                    }
+                )
+            }
+            if (onToggleDownload != null || onRemoveFromQueue != null) {
+                HorizontalDivider()
+            }
             DropdownMenuItem(
                 text = { Text(if (isPlayed) "Mark as unplayed" else "Mark as played") },
                 onClick = {

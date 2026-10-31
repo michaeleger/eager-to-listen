@@ -27,6 +27,7 @@ Fixes from the first round of 0.9.1 tester reports.
 - **Support Show is easier to find**: shows with a donate link get a ♥ button right on their row in the podcast list, and "Support Show" is now the filled, primary button on the show page and Now Playing (Boost is the secondary button).
 
 ### ✅ Played Status
+- **Tidier episode rows**: Download and Remove from queue moved into the ⋮ menu, and "downloaded" now shows once as a small ✓ icon, so titles and tags no longer get squeezed into letter-by-letter wraps.
 - **Mark as played / unplayed** from the ⋮ menu on any episode, in the Queue tabs and in a podcast's episode list.
 - **Mark this & older as played / Mark this & newer as played** for a podcast, with a confirmation first, for catching up after an import.
 - **Podcast Addict import**: stopped treating "downloaded" as "played", added Podcast Addict's likely played/position/duration column names, and the importer now logs the backup's episode columns so the mapping can be confirmed against a real backup.

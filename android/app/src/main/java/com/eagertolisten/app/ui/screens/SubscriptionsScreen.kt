@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -583,7 +582,9 @@ fun SubscriptionsScreen(
                                             Text(
                                                 text = SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date(ep.publishedAt)),
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = TextMuted
+                                                color = TextMuted,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             if (ep.durationSeconds > 0) {
                                                 val m = ep.durationSeconds / 60
@@ -591,20 +592,27 @@ fun SubscriptionsScreen(
                                                 Text(
                                                     text = "• ${m}m ${s}s",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = TextSecondary
+                                                    color = TextSecondary,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                             if (ep.transcriptUrl != null) {
-                                                Text("• CC", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BurntOrange)
+                                                Text("• CC", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BurntOrange, maxLines = 1, softWrap = false)
                                             }
                                             if (ep.chaptersUrl != null || (ep.description?.contains("Chapters", ignoreCase = true) == true)) {
-                                                Text("• Chapters", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BurntOrange)
+                                                Text("• Chapters", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BurntOrange, maxLines = 1, softWrap = false)
                                             }
                                             if (ep.isCompleted) {
-                                                Text("• ✓ Played", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium), color = TextMuted)
+                                                Text("• ✓ Played", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium), color = TextMuted, maxLines = 1, softWrap = false)
                                             }
                                             if (ep.isDownloaded) {
-                                                Text("• 💾 Downloaded", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BurntOrange)
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Downloaded",
+                                                    tint = BurntOrange,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
                                             }
                                         }
                                     }
@@ -614,19 +622,7 @@ fun SubscriptionsScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        // Download for Offline Play
-                                        IconButton(
-                                            onClick = { feedViewModel.toggleEpisodeDownload(ep) },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (ep.isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
-                                                contentDescription = if (ep.isDownloaded) "Downloaded (Tap to delete)" else "Download for offline listening",
-                                                tint = if (ep.isDownloaded) BurntOrange else TextSecondary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
+                                        // Download moved into the ⋮ menu so the title has room
                                         val effectiveValJson = ep.valueJson ?: podcast.valueJson
                                         if (com.eagertolisten.app.FeatureFlags.V4V_BOOST && effectiveValJson != null) {
                                             IconButton(
@@ -663,7 +659,9 @@ fun SubscriptionsScreen(
                                             isPlayed = ep.isCompleted,
                                             onSetPlayed = { played -> feedViewModel.setEpisodePlayed(ep, played) },
                                             onMarkThisAndOlderPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = true) },
-                                            onMarkThisAndNewerPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = false) }
+                                            onMarkThisAndNewerPlayed = { feedViewModel.markFeedEpisodesPlayed(ep, includeOlder = false) },
+                                            isDownloaded = ep.isDownloaded,
+                                            onToggleDownload = { feedViewModel.toggleEpisodeDownload(ep) }
                                         )
 
                                         IconButton(onClick = { onPlayEpisode?.invoke(ep) }) {

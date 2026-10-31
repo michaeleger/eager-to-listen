@@ -117,6 +117,8 @@ fun EpisodeItem(
                         ) {
                             Text(
                                 text = if (orderIndex == 1) "#1 NEXT" else "#$orderIndex",
+                                maxLines = 1,
+                                softWrap = false,
                                 color = BurntOrange,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.ExtraBold,
@@ -138,6 +140,8 @@ fun EpisodeItem(
                         ) {
                             Text(
                                 text = "● LIVE",
+                                maxLines = 1,
+                                softWrap = false,
                                 color = androidx.compose.ui.graphics.Color.White,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.ExtraBold,
@@ -155,6 +159,8 @@ fun EpisodeItem(
                         ) {
                             Text(
                                 text = "✓ Played",
+                                maxLines = 1,
+                                softWrap = false,
                                 color = TextMuted,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Medium,
@@ -166,31 +172,13 @@ fun EpisodeItem(
                     }
 
                     if (episode.isDownloaded) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = ForestGreenDarkest
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Downloaded",
-                                    tint = BurntOrange,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "Downloaded",
-                                    color = TextPrimary,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.sp
-                                    )
-                                )
-                            }
-                        }
+                        // One compact indicator (the label used to appear three times and squeeze the row)
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Downloaded",
+                            tint = BurntOrange,
+                            modifier = Modifier.size(13.dp)
+                        )
                     }
 
                     if (strategyTag != null) {
@@ -200,6 +188,8 @@ fun EpisodeItem(
                         ) {
                             Text(
                                 text = strategyTag,
+                                maxLines = 1,
+                                softWrap = false,
                                 color = TextSecondary,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Medium,
@@ -215,7 +205,9 @@ fun EpisodeItem(
                         style = MaterialTheme.typography.labelSmall,
                         color = BurntOrange,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        // The show name gives up space first, so badges never get squeezed into wraps
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
 
@@ -237,12 +229,16 @@ fun EpisodeItem(
                 ) {
                     Text(
                         text = formatDate(episode.publishedAt),
+                        maxLines = 1,
+                        softWrap = false,
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted
                     )
                     if (episode.durationSeconds > 0) {
                         Text(
                             text = "•  ${formatDuration(episode.durationSeconds)}",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
@@ -250,6 +246,8 @@ fun EpisodeItem(
                     if (episode.transcriptUrl != null) {
                         Text(
                             text = "•  CC",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = BurntOrange
                         )
@@ -257,13 +255,8 @@ fun EpisodeItem(
                     if (episode.chaptersUrl != null) {
                         Text(
                             text = "•  Chapters",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = BurntOrange
-                        )
-                    }
-                    if (episode.isDownloaded) {
-                        Text(
-                            text = "•  💾 Downloaded",
+                            maxLines = 1,
+                            softWrap = false,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = BurntOrange
                         )
@@ -273,7 +266,9 @@ fun EpisodeItem(
 
             // Actions
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onDownloadClick != null) {
+                // With the ⋮ menu present, Download and Remove live in the menu to free up the row.
+                val hasMenu = onSetPlayed != null
+                if (onDownloadClick != null && !hasMenu) {
                     IconButton(onClick = onDownloadClick) {
                         Icon(
                             imageVector = if (episode.isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
@@ -294,7 +289,7 @@ fun EpisodeItem(
                     }
                 }
 
-                if (onRemoveClick != null) {
+                if (onRemoveClick != null && !hasMenu) {
                     IconButton(onClick = onRemoveClick) {
                         Icon(
                             imageVector = Icons.Default.Close,
@@ -309,7 +304,10 @@ fun EpisodeItem(
                         isPlayed = episode.isCompleted,
                         onSetPlayed = onSetPlayed,
                         onMarkThisAndOlderPlayed = onMarkThisAndOlderPlayed,
-                        onMarkThisAndNewerPlayed = onMarkThisAndNewerPlayed
+                        onMarkThisAndNewerPlayed = onMarkThisAndNewerPlayed,
+                        isDownloaded = episode.isDownloaded,
+                        onToggleDownload = onDownloadClick,
+                        onRemoveFromQueue = onRemoveClick
                     )
                 }
 
