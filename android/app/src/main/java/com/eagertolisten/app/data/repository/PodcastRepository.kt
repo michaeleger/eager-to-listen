@@ -859,6 +859,15 @@ class PodcastRepository(context: Context) {
             ?: return@withContext
         val cleanId = podcast.id
         podcastDao.softUnsubscribe(cleanId)
+        // Removing a local folder show: give back the folder access Android granted.
+        if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(cleanId)) {
+            try {
+                appContext.contentResolver.releasePersistableUriPermission(
+                    android.net.Uri.parse(com.eagertolisten.app.data.local.LocalFolderFormat.treeUriOf(cleanId)),
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+        }
         val queueItems = queueDao.getAllQueueItemsSync().filter { it.podcastId == cleanId }
         val downloadMgr = com.eagertolisten.app.data.download.PodcastDownloadManager(appContext)
         for (item in queueItems) {

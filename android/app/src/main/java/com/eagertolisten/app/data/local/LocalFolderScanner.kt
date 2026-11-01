@@ -22,14 +22,26 @@ class LocalFolderScanner(context: Context) {
     private val db = EagerDatabase.getInstance(appContext)
     private val podcastDao = db.podcastDao()
     private val episodeDao = db.episodeDao()
+    private val queueDao = db.queueDao()
 
     /** Adds [treeUri] (from OpenDocumentTree, permission already persisted) as a show and scans it. */
     suspend fun addFolder(treeUri: Uri): Result<Podcast> = withContext(Dispatchers.IO) {
         try {
             val dir = DocumentFile.fromTreeUri(appContext, treeUri)
                 ?: return@withContext Result.failure(Exception("Couldn't open that folder"))
+            // Don't create an empty show (e.g. the parent folder of several shows was picked).
+            val audioCount = dir.listFiles().count { it.isFile && LocalFolderFormat.isAudioFile(it.name, it.type) }
+            if (audioCount == 0) {
+                return@withContext Result.failure(
+                    Exception("No audio files found directly in '${dir.name ?: "that folder"}'. Subfolders aren't included: add each subfolder as its own show.")
+                )
+            }
             val id = LocalFolderFormat.feedIdFor(treeUri.toString())
             val existing = podcastDao.getPodcastByIdSync(id)
+            // Re-adding a folder whose show was removed earlier: bring the show back.
+            if (existing?.unsubscribedAt != null) {
+                podcastDao.clearUnsubscribed(existing.id, System.currentTimeMillis())
+            }
             val podcast = existing ?: Podcast(
                 id = id,
                 feedUrl = id,
@@ -67,7 +79,7 @@ class LocalFolderScanner(context: Context) {
             val byName = files.associateBy { it.name ?: it.uri.toString() }
             val ordered = LocalFolderFormat.publishTimesInNameOrder(byName.map { (name, f) -> name to f.lastModified() })
 
-            val existing = episodeDao.getEpisodesForPodcastSync(podcast.id).associateBy { it.id }
+            val existing = episodeDao.getAllEpisodesForPodcastIncludingMissingSync(podcast.id).associateBy { it.id }
             val presentIds = mutableSetOf<String>()
             val newEpisodes = mutableListOf<Episode>()
 
@@ -76,7 +88,16 @@ class LocalFolderScanner(context: Context) {
                 val fileUri = file.uri.toString()
                 val episodeId = "${podcast.id}::$fileUri"
                 presentIds.add(episodeId)
-                if (episodeId in existing) return@forEachIndexed
+                val feedOrder = ordered.size - 1 - index
+                val known = existing[episodeId]
+                if (known != null) {
+                    // Order is recomputed across the whole folder each scan, so files added later that
+                    // sort earlier slot in correctly; keep stored order in step.
+                    if (known.publishedAt != publishedAt || known.feedOrder != feedOrder) {
+                        episodeDao.updateLocalEpisodeOrder(episodeId, publishedAt, feedOrder)
+                    }
+                    return@forEachIndexed
+                }
 
                 val (durationSec, tagTitle) = readMetadata(file.uri)
                 newEpisodes.add(
@@ -88,7 +109,7 @@ class LocalFolderScanner(context: Context) {
                         audioUrl = fileUri,
                         publishedAt = publishedAt,
                         durationSeconds = durationSec,
-                        feedOrder = ordered.size - 1 - index
+                        feedOrder = feedOrder
                     )
                 )
             }
@@ -96,9 +117,15 @@ class LocalFolderScanner(context: Context) {
 
             val now = System.currentTimeMillis()
             for ((id, ep) in existing) {
-                if (id !in presentIds && !ep.isDismissed) {
-                    episodeDao.markEpisodeDismissed(id, LocalFolderFormat.MISSING_REASON, now)
-                } else if (id in presentIds && ep.isDismissed && ep.dismissReason == LocalFolderFormat.MISSING_REASON) {
+                if (id !in presentIds) {
+                    // File gone: hide it (also overrides an UNPLAYABLE mark from a failed play) and
+                    // take it out of the queue, even manually queued items.
+                    if (ep.dismissReason != LocalFolderFormat.MISSING_REASON) {
+                        episodeDao.markEpisodeDismissed(id, LocalFolderFormat.MISSING_REASON, now)
+                    }
+                    queueDao.removeEpisodeFromQueue(id)
+                } else if (ep.isDismissed && (ep.dismissReason == LocalFolderFormat.MISSING_REASON || ep.dismissReason == "UNPLAYABLE")) {
+                    // File is back (or a play failed while access was briefly lost): show it again.
                     episodeDao.restoreMissingLocalEpisode(id, now)
                 }
             }

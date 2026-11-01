@@ -223,7 +223,7 @@ class PodcastAddictImporter(private val context: Context) {
             }
 
             if (podcastsToInsert.isNotEmpty()) {
-                podcastDao.insertPodcastsIgnore(podcastsToInsert)
+                saveImportedPodcasts(podcastsToInsert, mergeSettings = true)
                 podcastsCount = podcastsToInsert.size
             }
 
@@ -357,7 +357,7 @@ class PodcastAddictImporter(private val context: Context) {
         }
 
         if (importedPodcasts.isNotEmpty()) {
-            podcastDao.insertPodcastsIgnore(importedPodcasts)
+            saveImportedPodcasts(importedPodcasts, mergeSettings = false)
         }
 
         return ImportResult(
@@ -365,6 +365,37 @@ class PodcastAddictImporter(private val context: Context) {
             episodesImported = 0,
             message = "Successfully imported ${importedPodcasts.size} podcast feeds from OPML"
         )
+    }
+
+    /**
+     * Saves imported shows. Shows already in the app aren't replaced, but:
+     *  - a show you'd removed earlier is subscribed again (you just chose to import it), and
+     *  - with [mergeSettings] (backup imports), the backup's per-show speed and skip intro / outro
+     *    fill in settings you hadn't changed from the defaults.
+     */
+    private suspend fun saveImportedPodcasts(podcasts: List<Podcast>, mergeSettings: Boolean) {
+        if (podcasts.isEmpty()) return
+        podcastDao.insertPodcastsIgnore(podcasts)
+        val now = System.currentTimeMillis()
+        for (p in podcasts) {
+            val existing = podcastDao.getPodcastByIdSync(p.id) ?: continue
+            if (existing.unsubscribedAt != null) podcastDao.clearUnsubscribed(existing.id, now)
+            if (!mergeSettings) continue
+            val speed = if (existing.playbackSpeed == 1.0f && p.playbackSpeed != 1.0f) p.playbackSpeed else existing.playbackSpeed
+            val intro = if (existing.skipIntroSeconds == 0 && p.skipIntroSeconds > 0) p.skipIntroSeconds else existing.skipIntroSeconds
+            val outro = if (existing.skipOutroSeconds == 0 && p.skipOutroSeconds > 0) p.skipOutroSeconds else existing.skipOutroSeconds
+            if (speed != existing.playbackSpeed || intro != existing.skipIntroSeconds || outro != existing.skipOutroSeconds) {
+                podcastDao.updatePodcast(
+                    existing.copy(
+                        unsubscribedAt = null,
+                        playbackSpeed = speed,
+                        skipIntroSeconds = intro,
+                        skipOutroSeconds = outro,
+                        settingsUpdatedAt = now
+                    )
+                )
+            }
+        }
     }
 
     /**
@@ -425,7 +456,7 @@ class PodcastAddictImporter(private val context: Context) {
                 )
             }
         }
-        if (podcastsToInsert.isNotEmpty()) podcastDao.insertPodcastsIgnore(podcastsToInsert)
+        if (podcastsToInsert.isNotEmpty()) saveImportedPodcasts(podcastsToInsert, mergeSettings = true)
 
         // Older exports may lack the history column; only select what exists.
         val mediaColumns = mutableSetOf<String>()
@@ -500,7 +531,7 @@ class PodcastAddictImporter(private val context: Context) {
                 playOrderStrategy = FeedParser.inferPlayOrderStrategy(o.title, category = "")
             )
         }
-        if (podcasts.isNotEmpty()) podcastDao.insertPodcastsIgnore(podcasts)
+        if (podcasts.isNotEmpty()) saveImportedPodcasts(podcasts, mergeSettings = false)
         return ImportResult(
             podcastsImported = podcasts.size,
             episodesImported = 0,

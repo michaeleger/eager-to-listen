@@ -55,4 +55,12 @@ class LocalFolderFormatTest {
         val mixed = LocalFolderFormat.publishTimesInNameOrder(listOf("A.mp3" to 500L, "B.mp3" to 100L))
         assertEquals(listOf("A.mp3" to 500L, "B.mp3" to 501L), mixed)
     }
+
+    @Test
+    fun percentDecodingKeepsPlusSignsAndToleratesBadEscapes() {
+        assertEquals("C++ Talk", LocalFolderFormat.percentDecode("C++%20Talk"))
+        assertEquals("Café", LocalFolderFormat.percentDecode("Caf%C3%A9"))
+        assertEquals("100% Live", LocalFolderFormat.percentDecode("100% Live"))
+        assertEquals("C++", LocalFolderFormat.showTitle(null, "content://x/tree/primary%3AC++"))
+    }
 }

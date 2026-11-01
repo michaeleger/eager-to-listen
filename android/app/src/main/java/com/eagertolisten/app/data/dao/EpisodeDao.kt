@@ -46,11 +46,20 @@ data class EpisodeSyncProjection(
 
 @Dao
 interface EpisodeDao {
-    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC")
+    // Episodes whose local-folder file has gone missing are hidden everywhere they're listed.
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL AND (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') ORDER BY publishedAt DESC")
     fun getEpisodesForPodcast(podcastId: String): Flow<List<Episode>>
 
-    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC")
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL AND (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') ORDER BY publishedAt DESC")
     suspend fun getEpisodesForPodcastSync(podcastId: String): List<Episode>
+
+    /** Every episode of a show, including hidden missing local files (local folder rescans need them). */
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId")
+    suspend fun getAllEpisodesForPodcastIncludingMissingSync(podcastId: String): List<Episode>
+
+    // Local folder rescan: keep publish order in step with filename order
+    @Query("UPDATE episodes SET publishedAt = :publishedAt, feedOrder = :feedOrder WHERE id = :episodeId")
+    suspend fun updateLocalEpisodeOrder(episodeId: String, publishedAt: Long, feedOrder: Int): Int
 
     @Query("SELECT * FROM episodes WHERE id = :id LIMIT 1")
     fun getEpisodeById(id: String): Flow<Episode?>
@@ -199,7 +208,7 @@ interface EpisodeDao {
     suspend fun applyImportedPosition(episodeId: String, positionSec: Long, timestamp: Long): Int
 
     // Local folder show: a file that went missing came back
-    @Query("UPDATE episodes SET isDismissed = 0, dismissReason = NULL, updatedAt = :timestamp WHERE id = :episodeId AND dismissReason = 'LOCAL_FILE_MISSING'")
+    @Query("UPDATE episodes SET isDismissed = 0, dismissReason = NULL, updatedAt = :timestamp WHERE id = :episodeId AND dismissReason IN ('LOCAL_FILE_MISSING', 'UNPLAYABLE')")
     suspend fun restoreMissingLocalEpisode(episodeId: String, timestamp: Long = System.currentTimeMillis()): Int
 
     @Query("SELECT id FROM episodes WHERE podcastId = :podcastId AND completedAt = :completedAt AND isDownloaded = 1")
@@ -303,17 +312,17 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE isCompleted = 0 AND isDismissed = 0 AND isLive = 0 AND liveStatus IS NULL ORDER BY publishedAt DESC LIMIT :limit")
     fun getUnplayedEpisodes(limit: Int = 200): Flow<List<Episode>>
 
-    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') AND isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
     fun getPlayedEpisodes(limit: Int = 100): Flow<List<Episode>>
 
-    @Query("SELECT * FROM episodes WHERE isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') AND isCompleted = 1 AND isLive = 0 AND liveStatus IS NULL ORDER BY CASE WHEN completedAt IS NOT NULL THEN completedAt ELSE updatedAt END DESC LIMIT :limit")
     suspend fun getRecentPlayedEpisodesSync(limit: Int = 100): List<Episode>
 
     // Hot List: Unplayed episodes belonging to Priority 1 podcasts (excluding expired news)
     @Query("""
         SELECT e.* FROM episodes e
         INNER JOIN podcasts p ON e.podcastId = p.id
-        WHERE e.isCompleted = 0 
+        WHERE (e.dismissReason IS NULL OR e.dismissReason <> 'LOCAL_FILE_MISSING') AND e.isCompleted = 0 
           AND e.isLive = 0 
           AND e.liveStatus IS NULL 
           AND p.priority = 1
@@ -329,7 +338,7 @@ interface EpisodeDao {
     @Query("""
         SELECT e.* FROM episodes e
         INNER JOIN podcasts p ON e.podcastId = p.id
-        WHERE e.isCompleted = 0 
+        WHERE (e.dismissReason IS NULL OR e.dismissReason <> 'LOCAL_FILE_MISSING') AND e.isCompleted = 0 
           AND e.isLive = 0 
           AND e.liveStatus IS NULL 
           AND p.priority = 1
@@ -353,7 +362,7 @@ interface EpisodeDao {
 
     @Query("""
         SELECT * FROM episodes 
-        WHERE isCompleted = 0 AND isLive = 0 AND liveStatus IS NULL
+        WHERE (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') AND isCompleted = 0 AND isLive = 0 AND liveStatus IS NULL
         ORDER BY publishedAt DESC 
         LIMIT :limit
     """)
@@ -361,7 +370,7 @@ interface EpisodeDao {
 
     @Query("""
         SELECT * FROM episodes 
-        WHERE title LIKE '%' || :query || '%' 
+        WHERE (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') AND title LIKE '%' || :query || '%' 
            OR podcastTitle LIKE '%' || :query || '%' 
         ORDER BY publishedAt DESC 
         LIMIT :limit

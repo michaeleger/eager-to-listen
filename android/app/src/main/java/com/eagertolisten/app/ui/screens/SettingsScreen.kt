@@ -240,6 +240,14 @@ fun SettingsScreen(
                     importStatusMessage = "Added '${podcast.title}' as a show. Copy more files into the folder any time, then refresh the show."
                 }.onFailure { err ->
                     importStatusMessage = "Import failed: ${err.localizedMessage ?: "Unknown error"}"
+                    // Give back the access unless this folder is already a show that still needs it
+                    val alreadyAShow = com.eagertolisten.app.data.EagerDatabase.getInstance(context).podcastDao()
+                        .getPodcastByIdSync(com.eagertolisten.app.data.local.LocalFolderFormat.feedIdFor(treeUri.toString())) != null
+                    if (!alreadyAShow) try {
+                        context.contentResolver.releasePersistableUriPermission(
+                            treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -255,8 +263,12 @@ fun SettingsScreen(
                 val result = PodcastAddictImporter(context).importFromUri(uri)
                 isImporting = false
                 result.onSuccess { res ->
-                    importStatusMessage = res.message
-                    repository.generateProgrammedQueue()
+                    // Imported shows (OPML especially) have no episodes until their feeds are fetched,
+                    // so refresh now; refreshAllFeeds also rebuilds the queue when it's done.
+                    importStatusMessage = res.message + " Fetching episodes..."
+                    val (ok, errs) = repository.refreshAllFeeds()
+                    importStatusMessage = res.message + " Updated $ok feeds" +
+                        (if (errs.isNotEmpty()) " (${errs.size} couldn't be reached)." else ".")
                 }.onFailure { err ->
                     importStatusMessage = "Import failed: ${err.localizedMessage ?: "Unknown error"}"
                 }

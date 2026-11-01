@@ -37,8 +37,24 @@ object LocalFolderFormat {
     /** Folder display name for the show title; falls back to the last path segment of the tree URI. */
     fun showTitle(displayName: String?, treeUri: String): String {
         displayName?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-        val decoded = java.net.URLDecoder.decode(treeUri.substringAfterLast('/'), "UTF-8")
+        val decoded = percentDecode(treeUri.substringAfterLast('/'))
         return decoded.substringAfterLast(':').substringAfterLast('/').ifBlank { "Local Files" }
+    }
+
+    /** URI percent-decoding only: "+" stays "+", malformed "%" sequences are left as-is. */
+    fun percentDecode(s: String): String {
+        val out = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 < s.length) {
+                val hex = s.substring(i + 1, i + 3).toIntOrNull(16)
+                if (hex != null) { out.write(hex); i += 3; continue }
+            }
+            out.write(c.toString().toByteArray(Charsets.UTF_8))
+            i++
+        }
+        return out.toString("UTF-8")
     }
 
     /** Natural order: "Episode 2" before "Episode 10", case-insensitive. */

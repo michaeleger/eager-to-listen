@@ -223,7 +223,7 @@ object SyncSerializer {
         val podcasts = ops.getAllPodcastsIncludingUnsubscribed().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.id) }
         val episodes = ops.getEpisodesForSync().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
         val manualQueue = ops.getPinnedItems().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
-        val inspirations = ops.getAllInspirations()
+        val inspirations = ops.getAllInspirations().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
 
         return JSONObject().apply {
             put("format", CURRENT_FORMAT)

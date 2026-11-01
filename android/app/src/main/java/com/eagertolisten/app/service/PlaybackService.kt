@@ -515,7 +515,10 @@ class PlaybackService : MediaLibraryService() {
                                     }
                                 } else {
                                     android.util.Log.w("PlaybackService", "Dismissing unplayable episode: ${currentEp.title}")
-                                    database.episodeDao().markEpisodeDismissed(currentEp.id, "UNPLAYABLE")
+                                    // A local folder file that can't be read is "missing" (moved, deleted or access
+                                    // lost), not a bad episode, so a later rescan can bring it back if it returns.
+                                    val reason = if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(currentEp.podcastId)) com.eagertolisten.app.data.local.LocalFolderFormat.MISSING_REASON else "UNPLAYABLE"
+                                    database.episodeDao().markEpisodeDismissed(currentEp.id, reason)
                                     database.queueDao().removeEpisodeFromQueue(currentEp.id)
                                     withContext(Dispatchers.Main) {
                                         Toast.makeText(applicationContext, "Episode unplayable: ${currentEp.title}", Toast.LENGTH_SHORT).show()
