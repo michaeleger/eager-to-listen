@@ -62,6 +62,7 @@ class FeedParser {
         var channelCategory = ""
         var channelItunesType = ""
         var channelNewFeedUrl: String? = null
+        var channelPodcastGuid: String? = null
 
         val episodes = mutableListOf<Episode>()
         var insideChannel = false
@@ -282,6 +283,10 @@ class FeedParser {
                                 name == "type" && prefix == "itunes" -> {
                                     channelItunesType = parser.nextText().trim().lowercase()
                                 }
+                                // Podcasting 2.0: permanent show ID (channel level; item <guid> is handled in the item branch)
+                                name == "guid" && prefix == "podcast" -> {
+                                    channelPodcastGuid = runCatching { parser.nextText() }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                                }
                                 name == "new-feed-url" -> {
                                     channelNewFeedUrl = runCatching { parser.nextText() }.getOrNull()?.trim()
                                 }
@@ -424,7 +429,8 @@ class FeedParser {
             fundingMessage = channelFundingMessage,
             valueJson = channelValueJson,
             category = effectiveCat,
-            playOrderStrategy = inferredStrategy
+            playOrderStrategy = inferredStrategy,
+            podcastGuid = channelPodcastGuid
         )
 
         return ParsedFeed(podcast, boundedEpisodes, channelNewFeedUrl)

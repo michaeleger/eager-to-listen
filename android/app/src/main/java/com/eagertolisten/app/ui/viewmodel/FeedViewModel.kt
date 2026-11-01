@@ -117,11 +117,17 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        val alreadyFollowingIds = subscribedPodcasts.value.map { it.id }.toSet()
         viewModelScope.launch {
             _userMessage.value = "Subscribing to feed..."
             val result = repository.subscribe(feedUrl.trim(), priority)
             result.onSuccess {
-                _userMessage.value = "Subscribed to ${it.title}!"
+                // The repository matched a show you already follow (same podcast:guid, different address)
+                _userMessage.value = if (it.id in alreadyFollowingIds) {
+                    "You already follow ${it.title} (same show, different address)"
+                } else {
+                    "Subscribed to ${it.title}!"
+                }
             }.onFailure {
                 _userMessage.value = "Failed to subscribe: ${it.localizedMessage}"
             }

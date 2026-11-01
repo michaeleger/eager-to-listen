@@ -38,7 +38,11 @@ data class Podcast(
     val unsubscribedAt: Long? = null,
     val settingsUpdatedAt: Long = 0L,
     val httpEtag: String? = null,
-    val httpLastModified: String? = null
+    val httpLastModified: String? = null,
+
+    // Podcasting 2.0 <podcast:guid>: a permanent show ID that survives feed moves, used to spot the
+    // same show subscribed from two different addresses. Null when the feed doesn't publish one.
+    val podcastGuid: String? = null
 )
 
 enum class PlayOrderStrategy(val displayName: String, val description: String) {

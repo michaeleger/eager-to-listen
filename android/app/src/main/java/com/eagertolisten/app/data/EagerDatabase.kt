@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InspirationClip::class,
         PendingRemoteEpisode::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class EagerDatabase : RoomDatabase() {
@@ -85,6 +85,13 @@ abstract class EagerDatabase : RoomDatabase() {
                         createdAt INTEGER NOT NULL
                     )
                 """)
+            }
+        }
+
+        // v7: Podcasting 2.0 podcast:guid on shows, for duplicate detection
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE podcasts ADD COLUMN podcastGuid TEXT")
             }
         }
 
@@ -358,7 +365,7 @@ abstract class EagerDatabase : RoomDatabase() {
                     EagerDatabase::class.java,
                     "eager_to_listen.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 INSTANCE = instance
                 instance

@@ -228,4 +228,24 @@ class MigrationTest {
             assertEquals("$canonicalId::g3", c.getString(0))
         }
     }
+
+    @Test
+    fun migrate6To7AddsPodcastGuidAndKeepsShows() {
+        var db = helper.createDatabase(TEST_DB, 6).apply {
+            execSQL(
+                "INSERT INTO podcasts (id, title, feedUrl, artworkUrl, author, description, subscribedAt, priority, " +
+                    "skipIntroSeconds, skipOutroSeconds, playbackSpeed, autoAddToQueue, maxEpisodesInQueue, category, " +
+                    "playOrderStrategy, newsRetentionDays, consecutivePlayLimit, settingsUpdatedAt) " +
+                    "VALUES ('https://feeds.example.com/show', 'Show', 'https://feeds.example.com/show', '', '', '', 1, 3, " +
+                    "0, 0, 1.0, 1, 5, 'General', 'EVERGREEN', 3, -1, 0)"
+            )
+            close()
+        }
+        db = helper.runMigrationsAndValidate(TEST_DB, 7, true, EagerDatabase.MIGRATION_6_7)
+        db.query("SELECT title, podcastGuid FROM podcasts WHERE id = 'https://feeds.example.com/show'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("Show", c.getString(0))
+            assertTrue(c.isNull(1))
+        }
+    }
 }

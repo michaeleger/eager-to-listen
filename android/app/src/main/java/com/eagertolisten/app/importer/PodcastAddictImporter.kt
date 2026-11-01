@@ -11,6 +11,7 @@ import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.EpisodeId
 import com.eagertolisten.app.data.model.FeedUrl
 import com.eagertolisten.app.data.model.Podcast
+import com.eagertolisten.app.data.model.ShowMatcher
 import com.eagertolisten.app.parser.FeedParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,6 +164,7 @@ class PodcastAddictImporter(private val context: Context) {
             val podcastTitleMap = mutableMapOf<String, String>()
             val podcastsToInsert = mutableListOf<Podcast>()
             val perShowSpeeds = PodcastAddictFormat.parsePerShowSpeeds(prefsXml)
+            val resolver = newShowResolver()
 
             sqlite.rawQuery("SELECT * FROM $podcastTable", null).use { cursor ->
                 android.util.Log.i("PodcastAddictImporter", "Podcast table '$podcastTable' columns: ${cursor.columnNames.joinToString()}")
@@ -192,7 +194,10 @@ class PodcastAddictImporter(private val context: Context) {
                     val skipOutro = getColumnInt(cursor, 0, "skip_last_seconds", "skip_outro", "skip_last")
 
                     if (!feedUrl.isNullOrBlank()) {
-                        val eagerId = FeedUrl.normalize(feedUrl).ifBlank { feedUrl.trim() }
+                        // Podcast Addict's podcasts.guid holds the feed's <podcast:guid> when it has one
+                        val showGuid = getColumnString(cursor, "guid")?.takeIf { it.isNotBlank() }
+                        // Reuse the id of a show already here (address variant or same podcast:guid)
+                        val eagerId = resolver.resolve(feedUrl, showGuid)
                         if (rawId.isNotEmpty()) {
                             podcastIdMap[rawId] = eagerId
                         }
@@ -215,7 +220,8 @@ class PodcastAddictImporter(private val context: Context) {
                                 playbackSpeed = speed,
                                 autoAddToQueue = true,
                                 category = com.eagertolisten.app.parser.FeedParser.effectiveCategory(title, category),
-                                playOrderStrategy = strategy
+                                playOrderStrategy = strategy,
+                                podcastGuid = showGuid
                             )
                         )
                     }
@@ -313,6 +319,7 @@ class PodcastAddictImporter(private val context: Context) {
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
         parser.setInput(inputStream, null)
 
+        val resolver = newShowResolver()
         var eventType = parser.eventType
         val importedPodcasts = mutableListOf<Podcast>()
         var parentCategory = ""
@@ -328,7 +335,7 @@ class PodcastAddictImporter(private val context: Context) {
                     val category = parser.getAttributeValue(null, "category") ?: parentCategory
 
                     if (!xmlUrl.isNullOrBlank()) {
-                        val id = FeedUrl.normalize(xmlUrl).ifBlank { xmlUrl.trim() }
+                        val id = resolver.resolve(xmlUrl)
                         val strategy = FeedParser.inferPlayOrderStrategy(title, category = category)
                         importedPodcasts.add(
                             Podcast(
@@ -367,6 +374,12 @@ class PodcastAddictImporter(private val context: Context) {
         )
     }
 
+    /** Matches incoming shows to ones already in the app (see [ShowMatcher]) for one import run. */
+    private suspend fun newShowResolver(): ShowMatcher.ImportResolver =
+        ShowMatcher.ImportResolver(
+            podcastDao.getAllPodcastsIncludingUnsubscribedSync().map { ShowMatcher.Candidate(it.id, it.feedUrl, it.podcastGuid) }
+        )
+
     /**
      * Saves imported shows. Shows already in the app aren't replaced, but:
      *  - a show you'd removed earlier is subscribed again (you just chose to import it), and
@@ -380,6 +393,9 @@ class PodcastAddictImporter(private val context: Context) {
         for (p in podcasts) {
             val existing = podcastDao.getPodcastByIdSync(p.id) ?: continue
             if (existing.unsubscribedAt != null) podcastDao.clearUnsubscribed(existing.id, now)
+            if (existing.podcastGuid.isNullOrBlank() && !p.podcastGuid.isNullOrBlank()) {
+                podcastDao.updatePodcastGuid(existing.id, p.podcastGuid)
+            }
             if (!mergeSettings) continue
             val speed = if (existing.playbackSpeed == 1.0f && p.playbackSpeed != 1.0f) p.playbackSpeed else existing.playbackSpeed
             val intro = if (existing.skipIntroSeconds == 0 && p.skipIntroSeconds > 0) p.skipIntroSeconds else existing.skipIntroSeconds
@@ -420,6 +436,7 @@ class PodcastAddictImporter(private val context: Context) {
     /** AntennaPod "Database export": see [AntennaPodFormat] for the schema. */
     private suspend fun importFromAntennaPod(sqlite: SQLiteDatabase): ImportResult {
         val feedIdMap = mutableMapOf<Long, String>()       // AntennaPod feed id -> Eager podcast id
+        val resolver = newShowResolver()
         val feedTitleMap = mutableMapOf<String, String>()
         val podcastsToInsert = mutableListOf<Podcast>()
 
@@ -431,7 +448,7 @@ class PodcastAddictImporter(private val context: Context) {
                 val state = if (hasState) getColumnInt(cursor, 0, "state") else null
                 if (!AntennaPodFormat.isImportableFeed(state, feedUrl)) continue
                 val apId = getColumnLong(cursor, -1L, "id")
-                val eagerId = FeedUrl.normalize(feedUrl!!).ifBlank { feedUrl.trim() }
+                val eagerId = resolver.resolve(feedUrl!!)
                 val title = getColumnString(cursor, "custom_title")?.takeIf { it.isNotBlank() }
                     ?: getColumnString(cursor, "title") ?: "Podcast"
                 val category = ""
@@ -516,8 +533,9 @@ class PodcastAddictImporter(private val context: Context) {
 
     /** Subscriptions recovered from an OPML file a strict XML parser rejected. */
     private suspend fun importRecoveredOpml(outlines: List<OpmlRecovery.Outline>): ImportResult {
+        val resolver = newShowResolver()
         val podcasts = outlines.map { o ->
-            val id = FeedUrl.normalize(o.xmlUrl).ifBlank { o.xmlUrl }
+            val id = resolver.resolve(o.xmlUrl)
             Podcast(
                 id = id,
                 feedUrl = id,

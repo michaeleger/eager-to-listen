@@ -124,7 +124,11 @@ class PodcastRepository(context: Context) {
     suspend fun subscribe(feedUrl: String, priority: Int = 3): Result<Podcast> = withContext(Dispatchers.IO) {
         try {
             val normalizedUrl = com.eagertolisten.app.data.model.FeedUrl.normalize(feedUrl).ifBlank { feedUrl.trim() }
+            // Same show already here, even under an http/https, case or trailing-slash variant of the address?
+            val allShows = podcastDao.getAllPodcastsIncludingUnsubscribedSync()
+            val candidates = allShows.map { com.eagertolisten.app.data.model.ShowMatcher.Candidate(it.id, it.feedUrl, it.podcastGuid) }
             val existing = podcastDao.getPodcastByIdSync(normalizedUrl) ?: podcastDao.getPodcastByFeedUrlSync(normalizedUrl)
+                ?: com.eagertolisten.app.data.model.ShowMatcher.findMatch(candidates, normalizedUrl)?.let { c -> allShows.firstOrNull { it.id == c.id } }
             if (existing != null) {
                 // If it was soft-unsubscribed, reactivate it while preserving history and settings (I2 & I3)
                 if (existing.unsubscribedAt != null) {
@@ -148,6 +152,22 @@ class PodcastRepository(context: Context) {
                 }
                 val body = response.body?.byteStream() ?: return@withContext Result.failure(Exception("Empty body from server"))
                 val parsed = feedParser.parse(body, normalizedUrl, podcastId = normalizedUrl)
+
+                // Same show at a different address: the feed's <podcast:guid> matches one we have.
+                // Use that show instead of creating a second copy, and follow the address just entered.
+                val guidMatch = com.eagertolisten.app.data.model.ShowMatcher.findMatch(candidates, "", parsed.podcast.podcastGuid)
+                    ?.let { c -> allShows.firstOrNull { it.id == c.id } }
+                if (guidMatch != null) {
+                    Log.i("PodcastRepository", "'${guidMatch.title}' is already here (same podcast:guid); not adding a duplicate")
+                    if (guidMatch.unsubscribedAt != null) podcastDao.clearUnsubscribed(guidMatch.id)
+                    if (!com.eagertolisten.app.data.model.FeedUrl.sameFeed(guidMatch.feedUrl, normalizedUrl)) {
+                        podcastDao.updateFeedUrl(guidMatch.id, normalizedUrl)
+                    }
+                    val current = podcastDao.getPodcastByIdSync(guidMatch.id) ?: guidMatch
+                    refreshFeedInternal(current)
+                    generateProgrammedQueue()
+                    return@withContext Result.success(current)
+                }
 
                 val podcastWithPriority = parsed.podcast.copy(id = normalizedUrl, feedUrl = normalizedUrl, priority = priority)
                 val episodes = parsed.episodes.map { it.copy(podcastId = podcastWithPriority.id) }
@@ -217,6 +237,12 @@ class PodcastRepository(context: Context) {
                 if (wasPermanentRedirect && finalUrl.isNotBlank() && finalUrl != podcast.feedUrl) {
                     Log.i("EagerRefresh", "Permanent redirect for '${podcast.title}': ${podcast.feedUrl} -> $finalUrl")
                     podcastDao.updateFeedUrl(podcast.id, finalUrl)
+                }
+
+                // Remember the show's permanent Podcasting 2.0 ID for duplicate detection
+                val feedGuid = parsed.podcast.podcastGuid
+                if (!feedGuid.isNullOrBlank() && feedGuid != podcast.podcastGuid) {
+                    podcastDao.updatePodcastGuid(podcast.id, feedGuid)
                 }
 
                 // Handle itunes:new-feed-url

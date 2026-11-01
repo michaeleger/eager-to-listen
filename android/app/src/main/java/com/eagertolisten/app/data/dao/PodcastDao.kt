@@ -102,6 +102,9 @@ interface PodcastDao {
     @Query("DELETE FROM podcasts WHERE id = :id")
     suspend fun deletePodcastById(id: String): Int
 
+    @Query("UPDATE podcasts SET podcastGuid = :guid WHERE id = :id")
+    suspend fun updatePodcastGuid(id: String, guid: String?): Int
+
     @Query("UPDATE podcasts SET feedUrl = :feedUrl, settingsUpdatedAt = :updatedAt WHERE id = :id")
     suspend fun updateFeedUrl(id: String, feedUrl: String, updatedAt: Long = System.currentTimeMillis()): Int
 

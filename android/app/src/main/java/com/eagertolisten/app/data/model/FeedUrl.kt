@@ -8,12 +8,14 @@ object FeedUrl {
      * normalized, ignoring http vs https and letter case.
      */
     fun sameFeed(a: String, b: String): Boolean {
-        fun key(url: String): String = normalize(url).ifBlank { url.trim() }
-            .removePrefix("https://").removePrefix("http://")
-            .lowercase()
-        val ka = key(a)
-        return ka.isNotEmpty() && ka == key(b)
+        val ka = matchKey(a)
+        return ka.isNotEmpty() && ka == matchKey(b)
     }
+
+    /** Comparison key for [sameFeed]: normalized, scheme-less, lowercase. */
+    fun matchKey(url: String): String = normalize(url).ifBlank { url.trim() }
+        .removePrefix("https://").removePrefix("http://")
+        .lowercase()
 
     fun normalize(rawUrl: String): String {
         val trimmed = rawUrl.trim()
