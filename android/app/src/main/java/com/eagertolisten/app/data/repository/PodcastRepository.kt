@@ -570,11 +570,21 @@ class PodcastRepository(context: Context) {
         queueDao.insertQueueItem(item)
     }
 
+    private val unpinStore = com.eagertolisten.app.data.sync.UnpinStore(context)
+
+    /** Pinned items removed by hand are remembered so sync doesn't bring them back (R2.7). */
+    private suspend fun recordUnpins(episodeIds: Collection<String>) {
+        val pinned = queueDao.getPinnedItemsSync().map { it.episodeId }.toSet()
+        unpinStore.record(episodeIds.filter { it in pinned })
+    }
+
     suspend fun removeEpisodeFromQueue(episodeId: String) = withContext(Dispatchers.IO) {
+        recordUnpins(listOf(episodeId))
         queueDao.removeEpisodeFromQueue(episodeId)
     }
 
     suspend fun clearQueue() = withContext(Dispatchers.IO) {
+        recordUnpins(queueDao.getPinnedItemsSync().map { it.episodeId })
         queueDao.clearQueue()
     }
 
@@ -691,6 +701,8 @@ class PodcastRepository(context: Context) {
                 episodeId = epId,
                 podcastId = epFeedMap[epId] ?: activeStateEp?.takeIf { it.id == epId }?.podcastId ?: "",
                 orderIndex = index,
+                // Keep the pin's original time: sync compares it against removals on other devices
+                addedAt = pinned?.addedAt ?: now,
                 isManual = pinned != null,
                 manualIndex = pinned?.manualIndex
             )
@@ -810,6 +822,7 @@ class PodcastRepository(context: Context) {
     suspend fun markEpisodeSkipped(episodeId: String, positionSec: Long) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         episodeDao.markEpisodeSkipped(episodeId, positionSec, now)
+        recordUnpins(listOf(episodeId))
         queueDao.removeEpisodeFromQueue(episodeId)
         generateProgrammedQueue()
     }

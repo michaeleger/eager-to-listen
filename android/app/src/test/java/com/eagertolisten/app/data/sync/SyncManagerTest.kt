@@ -156,6 +156,20 @@ class InMemorySyncDatabaseOps : SyncDatabaseOps {
 
     override suspend fun getQueueCount(): Int =
         queueItems.size
+
+    var unpins: Map<String, Long> = emptyMap()
+
+    override suspend fun getUnpins(): Map<String, Long> = unpins
+
+    override suspend fun saveUnpins(unpins: Map<String, Long>) {
+        this.unpins = unpins
+    }
+
+    override suspend fun removeQueueItem(episodeId: String): Int {
+        val before = queueItems.size
+        queueItems.removeAll { it.episodeId == episodeId }
+        return before - queueItems.size
+    }
 }
 
 class SyncManagerTest {
@@ -461,5 +475,72 @@ class SyncManagerTest {
         assertEquals(1, pinnedOnB.size)
         assertEquals("feed3::ep3", pinnedOnB[0].episodeId)
         assertTrue(pinnedOnB[0].isManual)
+    }
+
+    // --- R2.7: pins removed by hand must not come back from another device ---
+
+    private fun seedPinned(db: InMemorySyncDatabaseOps, epId: String, addedAt: Long) {
+        db.queueItems.add(
+            QueueItem(episodeId = epId, podcastId = "feedP", orderIndex = 0, addedAt = addedAt, isManual = true, manualIndex = 0)
+        )
+    }
+
+    private fun seedFeedP(db: InMemorySyncDatabaseOps, epId: String) {
+        db.podcasts["feedP"] = createSamplePodcast("feedP", "Feed P")
+        db.episodes[epId] = createSampleEpisode(epId, "feedP")
+    }
+
+    @Test
+    fun testRemovedPinDoesNotComeBack() = runBlocking {
+        val ep = "feedP::ep1"
+        seedFeedP(dbA, ep); seedFeedP(dbB, ep)
+        seedPinned(dbA, ep, addedAt = 1000L)
+        seedPinned(dbB, ep, addedAt = 1000L)
+
+        // B removes the pin by hand at t=2000
+        dbB.queueItems.removeAll { it.episodeId == ep }
+        dbB.unpins = mapOf(ep to 2000L)
+
+        // A still has it and syncs first: B must not take it back
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "A", 2500L)))
+        assertTrue("Pin removed on B must stay removed", dbB.queueItems.none { it.episodeId == ep })
+
+        // B writes; A merges and drops its copy
+        SyncSerializer.mergeState(dbA, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbB, "B", 3000L)))
+        assertTrue("A should drop the pin B removed", dbA.queueItems.none { it.episodeId == ep })
+        assertEquals(2000L, dbA.unpins[ep])
+    }
+
+    @Test
+    fun testRepinAfterRemovalWins() = runBlocking {
+        val ep = "feedP::ep2"
+        seedFeedP(dbA, ep); seedFeedP(dbB, ep)
+        dbB.unpins = mapOf(ep to 2000L)
+        // A pins it again later, at t=5000
+        seedPinned(dbA, ep, addedAt = 5000L)
+
+        SyncSerializer.mergeState(dbB, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbA, "A", 5000L)))
+        assertTrue("A newer pin beats an older removal", dbB.queueItems.any { it.episodeId == ep && it.isManual })
+
+        // And B's older tombstone doesn't take it off A
+        SyncSerializer.mergeState(dbA, SyncSerializer.parseJson(SyncSerializer.serializeV2(dbB, "B", 6000L)))
+        assertTrue(dbA.queueItems.any { it.episodeId == ep })
+    }
+
+    @Test
+    fun testOldFilesWithoutTombstonesStillParse() {
+        val json = org.json.JSONObject("""{"format":2,"deviceId":"old","writtenAt":1,"podcasts":[],"episodes":[],"manualQueue":[],"inspirations":[]}""")
+        assertTrue(SyncSerializer.parseJson(json).manualQueueRemoved.isEmpty())
+    }
+
+    @Test
+    fun testUnpinRulesMergeAndPrune() {
+        val merged = UnpinRules.merge(mapOf("a" to 10L, "b" to 50L), mapOf("a" to 20L, "c" to 5L))
+        assertEquals(mapOf("a" to 20L, "b" to 50L, "c" to 5L), merged)
+        val day = 24L * 60 * 60 * 1000
+        val pruned = UnpinRules.prune(mapOf("old" to 0L, "new" to 100 * day), now = 100 * day)
+        assertEquals(setOf("new"), pruned.keys)
+        assertTrue(UnpinRules.removalWins(pinAddedAt = 10L, removedAt = 10L))
+        assertFalse(UnpinRules.pinWins(pinUpdatedAt = 10L, removedAt = 10L))
     }
 }

@@ -65,7 +65,9 @@ data class RemoteSyncState(
     val podcasts: List<RemotePodcast>,
     val episodes: List<RemoteEpisode>,
     val manualQueue: List<RemoteManualQueueItem>,
-    val inspirations: List<InspirationClip>
+    val inspirations: List<InspirationClip>,
+    /** Pins removed by hand: episodeId -> removedAt (R2.7). Absent in files from 0.9.2 and older. */
+    val manualQueueRemoved: Map<String, Long> = emptyMap()
 )
 
 interface SyncDatabaseOps {
@@ -111,9 +113,27 @@ interface SyncDatabaseOps {
     suspend fun removeEpisodesForPodcast(podcastId: String): Int
     suspend fun upsertInspirations(clips: List<InspirationClip>)
     suspend fun getQueueCount(): Int
+
+    /** This device's pin tombstones (episodeId -> removedAt). */
+    suspend fun getUnpins(): Map<String, Long> = emptyMap()
+    suspend fun saveUnpins(unpins: Map<String, Long>) {}
+    /** Remove one queue item (used when another device removed a pin). */
+    suspend fun removeQueueItem(episodeId: String): Int = 0
 }
 
-class RoomSyncDatabaseOps(private val db: EagerDatabase) : SyncDatabaseOps {
+class RoomSyncDatabaseOps(
+    private val db: EagerDatabase,
+    private val unpinStore: UnpinStore? = null
+) : SyncDatabaseOps {
+    override suspend fun getUnpins(): Map<String, Long> = unpinStore?.load() ?: emptyMap()
+
+    override suspend fun saveUnpins(unpins: Map<String, Long>) {
+        unpinStore?.save(unpins)
+    }
+
+    override suspend fun removeQueueItem(episodeId: String): Int =
+        db.queueDao().removeEpisodeFromQueue(episodeId)
+
     override suspend fun getAllPodcastsIncludingUnsubscribed(): List<Podcast> =
         db.podcastDao().getAllPodcastsIncludingUnsubscribedSync()
 
@@ -211,8 +231,9 @@ object SyncSerializer {
     suspend fun serializeV2(
         db: EagerDatabase,
         deviceId: String,
-        writtenAt: Long = System.currentTimeMillis()
-    ): JSONObject = serializeV2(RoomSyncDatabaseOps(db), deviceId, writtenAt)
+        writtenAt: Long = System.currentTimeMillis(),
+        unpinStore: UnpinStore? = null
+    ): JSONObject = serializeV2(RoomSyncDatabaseOps(db, unpinStore), deviceId, writtenAt)
 
     suspend fun serializeV2(
         ops: SyncDatabaseOps,
@@ -224,6 +245,8 @@ object SyncSerializer {
         val episodes = ops.getEpisodesForSync().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
         val manualQueue = ops.getPinnedItems().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
         val inspirations = ops.getAllInspirations().filterNot { com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.podcastId) }
+        val unpins = UnpinRules.prune(ops.getUnpins(), writtenAt)
+            .filterKeys { !com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(it.substringBefore("::")) }
 
         return JSONObject().apply {
             put("format", CURRENT_FORMAT)
@@ -296,6 +319,7 @@ object SyncSerializer {
                 })
             }
             put("manualQueue", qArray)
+            put("manualQueueRemoved", UnpinRules.toJson(unpins))
 
             val iArray = JSONArray()
             inspirations.forEach { ins ->
@@ -479,15 +503,17 @@ object SyncSerializer {
             podcasts = podcastList,
             episodes = episodeList,
             manualQueue = manualQueueList,
-            inspirations = inspirationList
+            inspirations = inspirationList,
+            manualQueueRemoved = UnpinRules.fromJson(json.optJSONArray("manualQueueRemoved"))
         )
     }
 
     suspend fun mergeState(
         db: EagerDatabase,
         remoteState: RemoteSyncState,
-        onNewPodcastSubscribed: (suspend (String) -> Unit)? = null
-    ): SyncSummary = mergeState(RoomSyncDatabaseOps(db), remoteState, onNewPodcastSubscribed)
+        onNewPodcastSubscribed: (suspend (String) -> Unit)? = null,
+        unpinStore: UnpinStore? = null
+    ): SyncSummary = mergeState(RoomSyncDatabaseOps(db, unpinStore), remoteState, onNewPodcastSubscribed)
 
     suspend fun mergeState(
         ops: SyncDatabaseOps,
@@ -709,7 +735,22 @@ object SyncSerializer {
         }
 
         // 3. Merge Manual Queue
+        // 3a. Pins removed by hand on another device come out here too, unless re-pinned since (R2.7)
+        val unpins = UnpinRules.merge(ops.getUnpins(), remoteState.manualQueueRemoved)
+        for (pin in ops.getPinnedItems()) {
+            if (UnpinRules.removalWins(pin.addedAt, remoteState.manualQueueRemoved[pin.episodeId])) {
+                ops.removeQueueItem(pin.episodeId)
+                mergedQueue++
+            }
+        }
+        if (remoteState.manualQueueRemoved.isNotEmpty()) {
+            // Keep the other device's removals so they pass on to a third device
+            ops.saveUnpins(unpins)
+        }
+
+        // 3b. Remote pins, skipping any removed by hand after they were pinned
         for (rmq in remoteState.manualQueue) {
+            if (!UnpinRules.pinWins(rmq.updatedAt, unpins[rmq.episodeId])) continue
             val localEp = ops.getEpisodeById(rmq.episodeId)
             if (localEp != null && !localEp.isCompleted && !localEp.isDismissed) {
                 val existingQ = ops.getAllQueueItems().find { it.episodeId == rmq.episodeId }

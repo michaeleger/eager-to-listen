@@ -44,6 +44,7 @@ class SyncManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("eager_sync_prefs", Context.MODE_PRIVATE)
     private val db = EagerDatabase.getInstance(context)
+    private val unpinStore = UnpinStore(context)
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<SyncState> = _state.asStateFlow()
@@ -165,7 +166,7 @@ class SyncManager(private val context: Context) {
                             val remoteState = SyncSerializer.parseJson(json)
                             // Only merge if from another device or newer than last sync
                             if (remoteState.deviceId != getOrCreateDeviceId() || remoteState.writtenAt > prefs.getLong("last_sync_timestamp", 0L)) {
-                                val summary = SyncSerializer.mergeState(db, remoteState)
+                                val summary = SyncSerializer.mergeState(db, remoteState, unpinStore = unpinStore)
                                 mergedPodcastsTotal += summary.podcastsSynced
                                 mergedEpisodesTotal += summary.episodesSynced
                             }
@@ -188,7 +189,7 @@ class SyncManager(private val context: Context) {
             }
 
             // 2. Export updated consolidated state (Write Safety: .tmp.json -> validate -> .bak.json -> eagertolisten_sync.json)
-            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId())
+            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId(), unpinStore = unpinStore)
             val jsonString = exportJson.toString(2)
 
             // Write to .tmp.json
@@ -269,7 +270,7 @@ class SyncManager(private val context: Context) {
 
     suspend fun exportBackupToUri(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId())
+            val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId(), unpinStore = unpinStore)
             context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
                 stream.write(exportJson.toString(2).toByteArray(Charsets.UTF_8))
                 stream.flush()
@@ -288,7 +289,7 @@ class SyncManager(private val context: Context) {
 
             val json = JSONObject(text)
             val remoteState = SyncSerializer.parseJson(json)
-            val summary = SyncSerializer.mergeState(db, remoteState)
+            val summary = SyncSerializer.mergeState(db, remoteState, unpinStore = unpinStore)
             Result.success(summary)
         } catch (e: Exception) {
             Result.failure(e)
