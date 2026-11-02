@@ -2,8 +2,8 @@
 
 [![Platform Android](https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg)](https://developer.android.com)
 [![Platform Web](https://img.shields.io/badge/Platform-Web%20%2F%20PWA-blue.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
-[![Podcasting 2.0](https://img.shields.io/badge/Podcasting%202.0-Certified-orange.svg)](https://podcastindex.org)
-[![Lightning V4V](https://img.shields.io/badge/Value%20for%20Value-Lightning%20%E2%9A%A1-yellow.svg)](https://lightning.network)
+[![Podcasting 2.0](https://img.shields.io/badge/Podcasting%202.0-Supported-orange.svg)](https://podcastindex.org)
+[![Value for Value](https://img.shields.io/badge/Value%20for%20Value-Support%20Show-yellow.svg)](https://value4value.info)
 [![Sync](https://img.shields.io/badge/Cloud%20Sync-Google%20Drive-brightgreen.svg)](https://developers.google.com/drive)
 
 > **The power-user podcast player designed for daily commuters, serial learners, and Podcasting 2.0 pioneers.**  
@@ -14,12 +14,23 @@
 ## 📢 Calling Alpha Testers!
 Are you looking for a podcast player that actually manages your queue automatically instead of making you swipe and reorder dozens of episodes every day?
 
-* 📲 **[Download Direct APK (v0.9.2-alpha)](./android/app/build/outputs/apk/debug/app-debug.apk)** — Direct `.apk` installer for Android.
+* 📲 **[Download Eager to Listen (v0.9.2-alpha)](https://eagertobehealthy.com/eager-to-listen)** — Signed Android APKs, install steps and release notes live on the app page. The APK isn't stored in this repository.
 * ⚡ **[Complete Feature List (FEATURES.md)](./FEATURES.md)** — In-depth breakdown of all feature pillars and engine invariants.
 * 📝 **[Changelog (CHANGELOG.md)](./CHANGELOG.md)** — Version-by-version release history from v0.1.0 to v0.9.2-alpha.
 * 📋 **[Alpha Tester Guide (ALPHA_TESTERS.md)](./ALPHA_TESTERS.md)** — Step-by-step setup, feedback channels, and test scenarios.
 * 📊 **[Product Data Sheet (PRODUCT_DATA_SHEET.md)](./PRODUCT_DATA_SHEET.md)** — Full technical specifications.
 * 🌐 **[Interactive Product Website (product-info.html)](./public/product-info.html)** — Comprehensive landing page with screenshots and feature breakdowns.
+
+### 🆕 What's new in 0.9.2-alpha
+* **Car-friendly again**: steering-wheel and headset Next/Previous jump within the episode (+90s / -15s by default) instead of skipping it, with a setting to switch back. Android Auto's "Up next" shows your whole queue.
+* **Your skip times**: rewind and forward from 10 to 90 seconds each.
+* **Bring your shows**: full-history imports from Podcast Addict backups and AntennaPod database exports, plus OPML from Podverse, Pocket Casts, Castbox or anything else.
+* **Local folder shows**: play a folder of archived MP3s like a podcast. Your files are never changed or deleted.
+* **Mark played / unplayed**, plus "mark this & older as played" for catching up after an import.
+* **No duplicate shows**, matched by feed address or Podcasting 2.0 `<podcast:guid>`.
+* **Crash reports you control**: after a crash the app offers to email the report, and nothing is sent unless you tap Send.
+
+Full details: **[CHANGELOG.md](./CHANGELOG.md)**. Download: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
 
 ---
 
@@ -47,13 +58,24 @@ Are you looking for a podcast player that actually manages your queue automatica
 ### ⚡ 3. Creator Support & Value for Value (V4V)
 * **Direct Funding (`<podcast:funding>`)**: Universal **"❤️ Support Show"** action button opening the creator's preferred donation channels (PayPal, Stripe, Patreon, Buy Me a Coffee).
 * **Custom Donation Link Overrides**: Set a custom donation URL per podcast in feed settings with auto-save (ideal for Riverside, Substack, and indie feeds that don't yet emit RSS funding tags).
-* **Lightning Boostagrams (`<podcast:value>`)**:
+* **Lightning Boostagrams (`<podcast:value>`)** *(hidden in 0.9.2 until boost payments can be sent; Support Show works today)*:
   * Quick satoshi chips (`⚡ 500`, `⚡ 1,000`, `⚡ 2,100`, `⚡ 5,000`, `⚡ 10,000`, `⚡ 25,000`) and custom satoshi amounts.
   * Personal boostagram note and sender handle.
   * Interactive recipient split breakdowns showing exact percentages for hosts, producers, and apps.
   * Seamless handoff to Lightning wallets (`lightning:` URI / WebLN) with clipboard keysend fallback.
 
-### 🔒 4. Zero-Server Privacy-First Cloud Sync
+### 🚗 4. Built for the Car
+* **Steering-wheel & headset buttons**: Next/Previous jump within the episode by default, so a stray press never drops what you're hearing. Switch to "Skip episode" in Settings → Player Controls.
+* **Android Auto**: browse your programmed playlist, Hot List, Daily News and shows; "Up next" follows your queue across all shows.
+* **Adjustable skip times** shared by the screen, the car and the lock screen.
+
+### 📥 5. Bring Your Shows With You
+* **Podcast Addict** full backup (`.backup`) and **AntennaPod** database export (`.db`): subscriptions plus played episodes, resume points and per-show speed.
+* **OPML** from any app (Podverse, Pocket Casts, Castbox, Player FM, ...): subscriptions.
+* **Local folder shows**: a folder of audio files on your phone plays as a show, in filename order. Read-only: your files are never changed or deleted.
+* Imports merge into shows you already have; nothing gets added twice.
+
+### 🔒 6. Zero-Server Privacy-First Cloud Sync
 * Sync your subscriptions, playback positions, queue state, and custom feed rules between devices using your personal Google Drive AppData folder.
 * **No proprietary backend, no tracking, no ads, no telemetry**. Your data remains strictly yours.
 
@@ -65,23 +87,24 @@ Are you looking for a podcast player that actually manages your queue automatica
 ├── android/                             # Native Android App
 │   ├── app/src/main/
 │   │   ├── java/com/eagertolisten/app/
-│   │   │   ├── data/                   # Room SQLite Database & Daos (Schema v6)
-│   │   │   │   ├── model/              # Podcast, Episode, Queue, Podcasting20 models
+│   │   │   ├── data/                   # Room SQLite Database & Daos (Schema v7)
+│   │   │   │   ├── model/              # Podcast, Episode, Queue, Podcasting20 models, FeedUrl, ShowMatcher
+│   │   │   │   ├── local/              # LocalFolderScanner, LocalFolderFormat (local folder shows)
 │   │   │   │   ├── dao/                # PodcastDao, EpisodeDao, QueueDao, PendingRemoteEpisodeDao
 │   │   │   │   ├── download/           # DownloadQueueWorker, PodcastDownloadManager
 │   │   │   │   ├── sync/               # SyncManager, SyncSerializer (Format 2), SyncDatabaseOps
 │   │   │   │   ├── v4v/                # V4VSplitMath, BoostagramPayload, NwcClient, NwcKeyStorage
 │   │   │   │   └── repository/         # PodcastRepository (parser, sync, queue, cache)
 │   │   │   ├── domain/                 # Pure QueueEngine (Invariants I1-I5, round-robin, evergreen)
-│   │   │   ├── importer/               # OpmlExporter (OPML 2.0), PodcastAddictImporter
+│   │   │   ├── diagnostics/            # CrashReporter (opt-in emailed crash reports)
+│   │   │   ├── importer/               # PodcastAddictImporter (Podcast Addict, AntennaPod, OPML), OpmlExporter, OpmlRecovery
 │   │   │   ├── parser/                 # XML Pull Parser (Podcasting 2.0 tags, V4V, Live)
-│   │   │   ├── playback/               # PlaybackCoordinator, PlaybackConfig (+90s/-15s)
-│   │   │   ├── service/                # Media3 MediaLibraryService & PlaybackService
+│   │   │   ├── service/                # Media3 PlaybackService, PlaybackCoordinator, PlaybackController
+│   │   │   ├── settings/               # PlayerSettings (skip times, car/headset buttons, Bookmark toggle)
 │   │   │   ├── worker/                 # ScheduledUpdateWorker
 │   │   │   └── ui/                     # Jetpack Compose UI
-│   │   │       ├── screens/            # QueueScreen, SubscriptionsScreen, DiscoverScreen, SettingsScreen
-│   │   │       ├── sheets/             # PlayerSheet, FeedCustomizerSheet
-│   │   │       ├── components/         # BoostSheet, MiniPlayer, PriorityBadge
+│   │   │       ├── screens/            # Queue, Subscriptions, Discover, Settings, FeedCustomizer & InspirationStudio sheets
+│   │   │       ├── components/         # PlayerSheet, MiniPlayer, EpisodeItem, EpisodeOverflowMenu, BoostSheet
 │   │   │       └── theme/              # Forest Green (#0C1611) & Burnt Orange (#EB5E17)
 │   │   ├── res/xml/                    # network_security_config, data_extraction_rules, backup_rules
 │   │   └── AndroidManifest.xml
@@ -140,18 +163,26 @@ Are you looking for a podcast player that actually manages your queue automatica
    ```bash
    adb shell am start -n com.eagertolisten.app/.MainActivity
    ```
+5. **Run the unit tests**:
+   ```bash
+   ./gradlew testDebugUnitTest
+   ```
+6. **Database changes**: Room exports its schema to `android/app/schemas/` on build. When the schema version changes, commit the new JSON file with your change.
+
+> **Just want to install it?** Signed release APKs are on the app page: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
 
 ---
 
 ## 🧪 Testing & Verification
 
-- **Pure JVM Unit Tests**: Decoupled unit tests running without Robolectric instrumentation overhead (`QueueEngineTest`, `SyncManagerTest`, `OpmlExporterTest`, `V4VSplitMathTest`, `BoostagramPayloadTest`, `PlaybackCoordinatorTest`, `TranscriptParserTest`, `FeedParserTest`).
-- **Room SQLite Migrations**: Room schema version 6 (`MIGRATION_5_6`) verified with Room schema export.
+- **Pure JVM Unit Tests** (`./gradlew testDebugUnitTest`): `QueueEngineTest`, `SyncManagerTest`, `OpmlExporterTest`, `V4VSplitMathTest`, `BoostagramPayloadTest`, `PlaybackCoordinatorTest`, `TranscriptParserTest`, `FeedParserTest`, plus 0.9.2's `PlayerSettingsTest`, `CrashReporterTest`, `FeedUrlSameFeedTest`, `ShowMatcherTest`, `PodcastAddictFormatTest` (values from a real Podcast Addict backup), `AntennaPodAndOpmlRecoveryTest` and `LocalFolderFormatTest`.
+- **Room SQLite Migrations**: schema version 7 (`MIGRATION_6_7`, adds `podcastGuid`), with `MigrationTest` covering 5→6 and 6→7 (instrumented; needs a device or emulator).
 - **Web App Tests & Hardening**: SSRF-hardened Node.js proxy and XSS-sanitized HTML rendering.
-- **Live Device Tested**: Verified on Android devices testing priority re-ordering, V4V boostagrams, offline download queue ahead, OPML export, and car steering wheel controls (+90s/-15s).
+- **Device Testing**: alpha testers on Pixel phones and tablets, plus in-car testing over Bluetooth and Android Auto. Found a problem? Use **Settings → Send Alpha Feedback Email**, or the crash report the app offers after a crash.
 
 ---
 
 ## 📄 License & Community
 Built with ❤️ for the open podcasting ecosystem and the Podcasting 2.0 movement.  
+App page & downloads: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**  
 For feedback, bug reports, and alpha tester inquiries, contact **michael.eger@michaelegerconsulting.com** or see [ALPHA_TESTERS.md](./ALPHA_TESTERS.md).

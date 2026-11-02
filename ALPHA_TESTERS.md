@@ -51,7 +51,8 @@ We are opening our **Closed Alpha Testing Program** and looking for passionate l
 *Supports Android 8.0 (Oreo / API 26) through Android 16.*
 
 1. **Download the Alpha APK (v0.9.2-alpha)**:
-   - Download the latest `app-debug.apk` directly from your tester invite email or install via ADB.
+   - Download the latest signed APK from the app page: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
+   - **Coming from an earlier test build?** One time only: in the old app go to **Settings → Export Backup**, uninstall it, install 0.9.2, then **Settings → Restore Backup**. (0.9.2 is the first signed release, and Android won't install it over a test build.)
 2. **Enable Unknown Apps**:
    - When opening the APK on your device, allow your browser or file manager permission to *"Install unknown apps"* if prompted.
 3. **Launch Eager to Listen**:

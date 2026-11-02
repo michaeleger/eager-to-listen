@@ -5,47 +5,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [0.9.2-alpha] - 2026-10-29
+## [0.9.2-alpha] - 2026-11-02
 
-Fixes from the first round of 0.9.1 tester reports.
+Fixes and features from the first round of 0.9.1 tester reports. Thank you to everyone who sent them in.
+
+📲 **Download:** signed APKs and release notes are on the app page, [eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen).
+
+**Updating from a test build (one time only):** 0.9.2 is the first signed release. If you installed an earlier test build, go to **Settings → Export Backup**, uninstall the old app, install 0.9.2, then **Settings → Restore Backup**. Future updates install right over the top.
 
 ### 🚗 Car & Headset Controls
 - **Steering-wheel Next/Previous jump within the episode again (regression fix)**: 0.9.1 mapped car and headset Next/Previous to skipping whole episodes, so a stray press on the wheel dropped the episode you were listening to. They now jump forward/back by your skip times (default +90s / -15s).
-- **Android Auto "Up next" shows the whole queue**: starting an episode from Android Auto's browse list used to load just that one episode, so "Up next" showed a single show until the queue happened to change. It now refills with the next 10 queued episodes (across all shows) whenever the playing episode changes.
-- **New setting: Settings > Player Controls > "Car / headset Next & Previous buttons"**: **Jump** (default) or **Skip episode**. It covers the steering wheel, Bluetooth headsets, Android Auto and the lock screen. The on-screen skip-episode buttons and Android Auto's "Skip episode" button always change episodes.
+- **New setting: Settings → Player Controls → "Car / headset Next & Previous buttons"**: **Jump** (default) or **Skip episode**. It covers the steering wheel, Bluetooth headsets, Android Auto and the lock screen. The on-screen skip-episode buttons and Android Auto's "Skip episode" button always change episodes.
+- **Android Auto "Up next" shows the whole queue**: starting an episode from Android Auto's browse list used to load just that one episode. "Up next" now refills with the next 10 queued episodes, across all shows, whenever the playing episode changes.
 
 ### ▶️ Player
-- **Player controls no longer hide under the status bar, camera cut-out or navigation bar**: the collapse arrow, speed control and Bookmark button are reachable on edge-to-edge phones (e.g. Pixel 10 Pro XL) in portrait.
+- **Controls no longer hide under the status bar, camera cut-out or navigation bar**: the collapse arrow, speed control and Bookmark button are reachable on edge-to-edge phones (e.g. Pixel 10 Pro XL) in portrait.
 - **Back gesture closes the player**: system Back collapses Now Playing to the mini player instead of leaving the app.
 - **Adjustable skip times**: rewind and forward can each be set to 10, 15, 30, 45, 60 or 90 seconds (defaults stay 15s back / 90s forward). The on-screen buttons, mini player, Android Auto buttons and car/headset jumps all follow the setting.
-- **Readable skip labels**: the seconds now sit under the rewind/forward icons at a larger size instead of on top of them.
-- **Hide the "Save Idea / Bookmark" button** if you don't use it: Settings > Player Controls.
+- **Readable skip labels**: the seconds sit under the rewind/forward icons at a larger size instead of on top of them.
+- **Hide the "Save Idea / Bookmark" button** if you don't use it: Settings → Player Controls.
+- **Playing a saved bookmark starts at the bookmark** (Creator Inspiration Studio), including bookmarks in the first couple of seconds.
 
 ### 🎙 Podcasts & Supporting Shows
-- **Easier way back to the podcast list**: a show's page now has an "All Podcasts" back button at the top (it covers the bottom tabs, so swiping down was the only way out). Tapping the Podcasts tab again also closes an open show, and tapping the show name on Now Playing jumps straight to that show's page.
-- **Boost hidden until it works**: the Lightning ⚡ Boost buttons and the wallet setup in Settings are hidden for now (`FeatureFlags.V4V_BOOST` / `V4V_NWC`), since boosts can't be sent yet. Support Show stays.
-- **Support Show is easier to find**: shows with a donate link get a ♥ button right on their row in the podcast list, and "Support Show" is now the filled, primary button on the show page and Now Playing (Boost is the secondary button).
+- **Easier way back to the podcast list**: a show's page has an "All Podcasts" back button at the top. Tapping the Podcasts tab again also closes an open show, and tapping the show name on Now Playing jumps to that show's page.
+- **Support Show is easier to find**: shows with a donate link get a ♥ button on their row in the podcast list, and "Support Show" is the filled, primary button on the show page and Now Playing.
+- **Boost hidden until it works**: the Lightning ⚡ Boost buttons and the wallet setup in Settings are hidden for now, since boosts can't be sent yet. Support Show is unaffected.
+- **Tidier episode rows**: Download and Remove from queue moved into the ⋮ menu, and "downloaded" shows once as a small ✓ icon, so titles and tags no longer get squeezed.
+- **No more duplicate shows**: subscribing to or importing a show you already have no longer creates a second copy (every episode twice, played status split between them). A show counts as the same when its feed address matches (ignoring http vs https, capitalization and a trailing slash, and including the original address of a feed that has moved) or when the feed's Podcasting 2.0 `<podcast:guid>` matches. Subscribing to a show you already follow under a new address says so and switches it to the new address.
+- **Discover's "Subscribed" badge** recognizes a feed even when the directory lists it with http vs https, different capitalization or a trailing slash.
 
 ### ✅ Played Status
-- **Tidier episode rows**: Download and Remove from queue moved into the ⋮ menu, and "downloaded" now shows once as a small ✓ icon, so titles and tags no longer get squeezed into letter-by-letter wraps.
 - **Mark as played / unplayed** from the ⋮ menu on any episode, in the Queue tabs and in a podcast's episode list.
 - **Mark this & older as played / Mark this & newer as played** for a podcast, with a confirmation first, for catching up after an import.
-- **Podcast Addict import**: stopped treating "downloaded" as "played", added Podcast Addict's likely played/position/duration column names, and the importer now logs the backup's episode columns so the mapping can be confirmed against a real backup.
+- **"Finished" is recorded once**: near the end of an episode the app used to re-run the finish work every 10 seconds (queue rebuild, deleting the downloaded file while it was still playing). It now marks the episode played once and leaves the file and queue rebuild until playback actually moves on, including when you pause, get interrupted or buffer near the end.
+- **Jumping to another episode can't un-play the one you left.**
+- **No more replaying a just-finished episode** when the next show is a News feed.
+
+### 📥 Import From Other Apps (Settings → Import)
+- **Podcast Addict full-backup import fixed** (checked against a real backup): the importer was opening the backup's settings file instead of its database, so full-backup imports failed. It also imported every show Podcast Addict had ever seen (1,960 instead of the 5 actually subscribed in the sample), made every show Priority 1, read durations like "32:12" as 32 seconds (which marked any started episode as played) and misread resume points. It now brings over only real subscriptions, renamed show titles, per-show speeds, played status and resume points.
+- **Import from AntennaPod**: AntennaPod's "Database export" (.db) brings over your followed shows, played episodes, resume points, per-show speed and skip intro / ending.
+- **Import from Podverse**: Podverse's "Export OPML" file imports your subscriptions, including files Podverse's exporter wrote with broken quotes. OPML from any other app gets the same safety net. (Podverse doesn't export listening history.)
+- **Imports merge into shows you already have**: played status and resume points carry over to shows you'd subscribed to first (the furthest resume point wins), per-show speed and skip intro / outro fill in where you hadn't changed them, a show you'd removed is subscribed again, and a show listed twice in one file is imported once.
+- **Imports refresh right away**, so OPML-imported shows don't sit empty until a manual refresh.
+- Imported plays keep their original play dates, so imported shows don't all look "just heard" to the queue's fair-rotation rules.
+
+### 📁 Local Folder Shows ("Virtual Feeds")
+- **Settings → Import → "Add a Folder of Audio Files as a Show"** turns a folder of MP3s (or M4A, AAC, OGG, Opus, WAV, FLAC) on your phone into a show, for archived episodes that no longer have a feed.
+- Each file plays as an episode in filename order ("Ep 2" before "Ep 10"), using the file's own title tag when it has one.
+- Copy more files in and refresh the show to pick them up. Files you remove are hidden and dropped from the queue, and come back if you put them back.
+- Played status, resume points, the queue and Android Auto work like any other show.
+- **Your files are never changed or deleted.** Local shows are skipped by downloads, download cleanup, OPML export and Google Drive sync, and the app only asks for read access to the folder.
+- One folder = one show (add each subfolder separately). If you move or rename the folder, add it again.
 
 ### 🛠 Stability & Diagnostics
-- **No more replaying a just-finished episode** when the next show is a News feed: after the just-in-time news refresh, the player no longer picks the episode that just ended from the top of the queue.
-- **"Finished" is recorded once**: in the last 2% of an episode the app used to re-run the finish work every 10 seconds (queue rebuild, deleting the downloaded file while it was still playing). It now marks the episode played once and leaves the file and queue rebuild until playback actually moves on, including when you pause, get interrupted or buffer near the end.
-- **Playing a saved bookmark starts at the bookmark** (Creator Inspiration Studio) instead of the saved resume point, including bookmarks in the first couple of seconds.
-- **Jumping to another episode can't un-play the one you left**: leaving an episode in its last 2% no longer flips it back to unplayed.
-- **Local folder shows ("virtual feeds")**: Settings > Import > "Add a Folder of Audio Files as a Show" turns a folder of MP3s (or M4A, AAC, OGG, Opus, WAV, FLAC) on your phone into a show, for archived episodes that no longer have a feed. Each file plays as an episode in filename order ("Ep 2" before "Ep 10"), using the file's own title tag when it has one. Copy more files in and refresh the show to pick them up (they slot into filename order); files you remove are hidden everywhere and dropped from the queue, and come back if you put them back. Picking a folder with no audio files directly in it (for example, the parent of several show folders) is refused instead of creating an empty show; re-adding a folder you'd removed brings the show back. Played status, resume points, the queue and Android Auto work like any other show. **Your files are never changed or deleted**: local shows are skipped by downloads, download cleanup, OPML export and Google Drive sync. One folder = one show; if you move or rename the folder, add it again.
-- **No more duplicate shows**: subscribing or importing a show you already have no longer creates a second copy (with every episode twice and played status split between them). A show counts as the same when its feed address matches, ignoring http vs https, capitalization and a trailing slash, including the original address of a feed that has since moved, or when the feed's Podcasting 2.0 `<podcast:guid>` matches (the permanent show ID that stays the same when a show changes addresses). Subscribing to a show you already follow under a new address says so and switches it to the new address. Imports from Podcast Addict, AntennaPod and OPML merge into your existing shows, and a show listed twice in one file is imported once. (Database update: adds the show's podcast:guid; it fills in on the next feed refresh.)
-- **Imports refresh right away**: after any import, Eager to Listen fetches the imported shows' episodes, so OPML imports don't sit empty until a manual refresh. Re-importing a show you'd removed subscribes it again, and backup imports fill in per-show speed and skip intro / outro on shows you'd already added (where you hadn't changed them).
-- **Import from AntennaPod**: Settings > Import accepts AntennaPod's "Database export" (.db) and brings over your followed shows, played episodes, resume points, per-show speed and skip intro / ending.
-- **Import from Podverse**: Podverse's "Export OPML" file imports your subscriptions, including files that Podverse's exporter wrote with broken quotes (OPML from any other app gets the same safety net). Podverse doesn't export listening history.
-- **Podcast Addict full-backup import fixed** (checked against a real backup): the importer was opening the backup's settings file instead of its database, so full-backup imports failed. It also imported every show Podcast Addict had ever seen (1,960 instead of the 5 actually subscribed), made every show Priority 1, read durations like "32:12" as 32 seconds (which marked any started episode as played) and misread resume points. Now it brings over only real subscriptions, your renamed show titles, per-show playback speeds, played status and resume points. Played status and resume spots also merge into shows you'd already subscribed to (the furthest resume point wins), imported plays are dated from Podcast Addict's own play dates so they don't all look just-heard to the queue, and large backups are inserted in chunks.
-- **Discover's "Subscribed" badge** now recognizes a feed even when the directory lists it with http vs https, different capitalization or a trailing slash.
-- **Feed refresh hardening**: a feed too large to parse now fails on its own instead of crashing the app; a failure while rebuilding the queue after a refresh no longer crashes the app; only one full refresh runs at a time (startup, manual, scheduled); queue rebuilds are serialized app-wide.
-- **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings > "Email Last Crash Report".
+- **Feed refresh hardening**: a feed too large to parse fails on its own instead of crashing the app, a failure while rebuilding the queue after a refresh no longer crashes the app, and only one full refresh runs at a time.
+- **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings → "Email Last Crash Report".
+- **Database update (schema v7)**: stores each show's `<podcast:guid>` for duplicate detection. It fills in on the next feed refresh.
 
 ---
 
