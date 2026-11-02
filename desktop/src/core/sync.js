@@ -163,7 +163,8 @@ function parseRules(o) {
     playOrderStrategy: optStr(o, 'playOrderStrategy', 'EVERGREEN'),
     skipIntroSeconds: optInt(o, 'skipIntroSeconds', 0),
     skipOutroSeconds: optInt(o, 'skipOutroSeconds', 0),
-    playbackSpeed: optNum(o, 'playbackSpeed', 1.0),
+    // Android writes Float.toDouble(), so 1.1 arrives as 1.100000023841858; keep it at 1.1
+    playbackSpeed: Math.round(optNum(o, 'playbackSpeed', 1.0) * 100) / 100,
     autoAddToQueue: optBool(o, 'autoAddToQueue', true),
     maxEpisodesInQueue: optInt(o, 'maxEpisodesInQueue', 5),
     consecutivePlayLimit: optInt(o, 'consecutivePlayLimit', -1),

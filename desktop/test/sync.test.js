@@ -253,3 +253,8 @@ test('a fresh PC gets the phone pins once the new show loads, and keeps them in 
   const written = parse(folder.files['eagertolisten_sync.json']);
   assert.ok(written.manualQueue.some((m) => m.episodeId === 'feedQ::e9'), "the phone's pin survives in the file the PC writes");
 });
+
+test("Android's float speeds come in clean (1.100000023841858 -> 1.1)", () => {
+  const s = parse('{"format":2,"podcasts":[{"id":"f","rules":{"playbackSpeed":1.100000023841858}}]}');
+  assert.equal(s.podcasts[0].rules.playbackSpeed, 1.1);
+});
