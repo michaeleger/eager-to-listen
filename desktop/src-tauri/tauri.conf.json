@@ -28,7 +28,7 @@
   "bundle": {
     "active": true,
     "targets": ["deb", "appimage", "nsis"],
-    "category": "Audio",
+    "category": "Music",
     "shortDescription": "Podcast player with a fair, programmable queue",
     "longDescription": "Eager to Listen for the desktop. Shares your shows, queue and progress with the Android app through your Drive sync folder.",
     "homepage": "https://eagertobehealthy.com/eager-to-listen",
