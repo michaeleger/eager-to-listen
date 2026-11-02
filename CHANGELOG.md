@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [Unreleased]
+
+### 🔄 Sync
+- **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device used to bring it back at the next sync, because the other device still had it. Removals are now remembered and synced, and the newer action wins: pin it again later and it comes back.
+- The sync file gains a `manualQueueRemoved` list. It's an addition, so 0.9.2 still reads new files without trouble.
+
+### 🖥 Desktop (Linux first) — new, alpha
+- **Eager to Listen for the desktop** (`desktop/`): a native Linux app built with Tauri, with Windows to follow from the same code.
+- **Shares everything with your phone**: shows, per-show rules, queue and pins, played status, progress and bookmarks, through the same Google Drive sync folder the phone uses. On Linux it reaches Drive through rclone; a plain folder path works too.
+- **Same queue as the phone**: the fair-interleaving engine, all four play orders, back-to-back limits, skip intro/outro and per-show speed, ported rule for rule from the Android code with the Android tests ported alongside.
+- Search the Apple Podcasts directory or paste a feed address, check for new episodes, download episodes for offline play, bookmark a spot, and pick up where you left off after a restart.
+
 ## [0.9.2-alpha] - 2026-11-02
 
 Fixes and features from the first round of 0.9.1 tester reports. Thank you to everyone who sent them in.

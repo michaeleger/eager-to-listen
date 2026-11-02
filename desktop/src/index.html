@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eager to Listen</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="sidebar" aria-label="Main">
+        <div class="brand">
+          <img src="icon.png" alt="" width="34" height="34" />
+          <span>Eager to Listen</span>
+        </div>
+        <button class="nav" data-view="queue">Queue <span class="count" id="queueCount"></span></button>
+        <button class="nav" data-view="shows">Shows</button>
+        <button class="nav" data-view="add">Add a show</button>
+        <button class="nav" data-view="bookmarks">Bookmarks</button>
+        <button class="nav" data-view="settings">Settings</button>
+        <div class="sidebar-foot">
+          <div id="syncStatus" class="sync-status" title="Phone sync"></div>
+          <button class="ghost small" data-action="sync-now">Sync now</button>
+          <button class="ghost small" data-action="refresh-all">Check for new episodes</button>
+        </div>
+      </nav>
+
+      <main id="main" class="main" tabindex="-1"></main>
+
+      <footer class="player" id="player" aria-label="Player">
+        <img id="npArt" class="np-art" alt="" />
+        <div class="np-info">
+          <div id="npTitle" class="np-title">Nothing playing</div>
+          <button id="npShow" class="np-show link" data-action="open-now-playing-show"></button>
+        </div>
+        <div class="np-controls">
+          <button class="ctl" data-action="seek-back" title="Rewind (Left arrow)"><span class="ico">↺</span><small id="backLabel">15</small></button>
+          <button class="ctl play" data-action="toggle-play" id="playBtn" title="Play / pause (Space)">▶</button>
+          <button class="ctl" data-action="seek-forward" title="Forward (Right arrow)"><span class="ico">↻</span><small id="fwdLabel">90</small></button>
+          <button class="ctl" data-action="skip-episode" title="Skip episode">⏭</button>
+          <button class="ctl" data-action="save-idea" title="Save a bookmark here">☆</button>
+        </div>
+        <div class="np-progress">
+          <span id="npTime">0:00</span>
+          <input id="scrubber" type="range" min="0" max="0" step="1" value="0" aria-label="Position" />
+          <span id="npDuration">0:00</span>
+        </div>
+        <select id="speed" class="speed" aria-label="Playback speed">
+          <option value="0.8">0.8×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.1">1.1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="1.75">1.75×</option>
+          <option value="2">2×</option>
+        </select>
+      </footer>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <audio id="audio" preload="auto"></audio>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

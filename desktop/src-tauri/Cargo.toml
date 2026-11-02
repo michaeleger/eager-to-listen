@@ -1,0 +1,29 @@
+[package]
+name = "eager-to-listen"
+version = "0.1.0"
+description = "Eager to Listen podcast player for Linux and Windows"
+authors = ["Michael Eger"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "eager_to_listen_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "stream"] }
+futures-util = "0.3"
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = ["fs", "io-util", "process", "time"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

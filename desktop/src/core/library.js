@@ -26,6 +26,7 @@ export function emptyLibrary() {
       autoSync: true,
     },
     deviceId: null,
+    nowPlayingId: null, // last episode in the player, restored paused on start
     lastSyncAt: 0,
   };
 }

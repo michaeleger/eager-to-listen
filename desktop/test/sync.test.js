@@ -181,3 +181,75 @@ test('local folder shows never leave the PC', () => {
   assert.equal(out.podcasts.length, 0);
   assert.equal(out.episodes.length, 0);
 });
+
+// ---- the full sync pass against a fake Drive folder ----
+import { runSync } from '../src/core/syncRunner.js';
+
+function fakeFolder(files = {}) {
+  return {
+    files,
+    list: async () => Object.keys(files),
+    read: async (_t, n) => files[n],
+    write: async (_t, json) => { files['eagertolisten_sync.json'] = json; },
+    remove: async (_t, n) => { delete files[n]; },
+  };
+}
+
+test('sync pass merges the phone file and conflict copies, writes one file, removes copies', async () => {
+  const phone = emptyLibrary();
+  phone.podcasts.feedS = pod('feedS');
+  phone.episodes['feedS::e1'] = epi('feedS::e1', 'feedS', { playbackPositionSeconds: 120, updatedAt: 5000 });
+  const copy = emptyLibrary();
+  copy.podcasts.feedT = pod('feedT');
+
+  const folder = fakeFolder({
+    'eagertolisten_sync.json': JSON.stringify(serialize(phone, 'pixel', 5000)),
+    'eagertolisten_sync (1).json': JSON.stringify(serialize(copy, 'pixel', 4000)),
+    'eagertolisten_sync (2).json': '{ not json',
+    'notes.txt': 'ignore me',
+  });
+  const pc = emptyLibrary();
+  pc.deviceId = 'pc-test';
+  pc.settings.syncFolder = 'gdrive:EagerToListen';
+
+  const res = await runSync(pc, folder, { now: 6000 });
+  assert.deepEqual(res.newlySubscribed.sort(), ['feedS', 'feedT']);
+  assert.equal(pc.pending['feedS::e1'].pos, 120);
+  assert.ok(!('eagertolisten_sync (1).json' in folder.files), 'merged copy removed');
+  assert.ok('eagertolisten_sync (2).json' in folder.files, 'unreadable copy kept');
+  assert.ok('notes.txt' in folder.files);
+  const written = parse(folder.files['eagertolisten_sync.json']);
+  assert.equal(written.deviceId, 'pc-test');
+  assert.equal(written.podcasts.length, 2);
+  assert.equal(pc.lastSyncAt, 6000);
+});
+
+test('sync pass needs a folder', async () => {
+  await assert.rejects(runSync(emptyLibrary(), fakeFolder()), /No sync folder/);
+});
+
+test('a fresh PC gets the phone pins once the new show loads, and keeps them in the file it writes', async () => {
+  const phone = emptyLibrary();
+  phone.podcasts.feedQ = pod('feedQ');
+  phone.episodes['feedQ::e9'] = epi('feedQ::e9', 'feedQ', { playbackPositionSeconds: 77, updatedAt: 5000 });
+  phone.queue.push({ episodeId: 'feedQ::e9', podcastId: 'feedQ', orderIndex: 0, addedAt: 5000, isManual: true, manualIndex: -1 });
+  const folder = fakeFolder({ 'eagertolisten_sync.json': JSON.stringify(serialize(phone, 'pixel', 5000)) });
+  const pc = emptyLibrary();
+  pc.deviceId = 'pc';
+  pc.settings.syncFolder = 'gdrive:X';
+
+  let loaded = [];
+  await runSync(pc, folder, {
+    now: 6000,
+    onNewShows: async (ids) => {
+      loaded = ids;
+      applyFeedRefresh(pc, 'feedQ', { podcast: {}, episodes: [{ id: 'feedQ::e9', title: 'E9', audioUrl: 'e9.mp3', publishedAt: 900 }] });
+    },
+  });
+  assert.deepEqual(loaded, ['feedQ']);
+  const q = pc.queue.find((x) => x.episodeId === 'feedQ::e9');
+  assert.ok(q && q.isManual, 'pin lands');
+  assert.equal(pc.episodes['feedQ::e9'].playbackPositionSeconds, 77);
+  const written = parse(folder.files['eagertolisten_sync.json']);
+  assert.ok(written.manualQueue.some((m) => m.episodeId === 'feedQ::e9'), "the phone's pin survives in the file the PC writes");
+});

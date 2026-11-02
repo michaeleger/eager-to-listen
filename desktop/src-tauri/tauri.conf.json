@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Eager to Listen",
+  "version": "0.1.0",
+  "identifier": "com.eagertolisten.desktop",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Eager to Listen",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 520
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' https: http: data: asset: http://asset.localhost; media-src 'self' https: http: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/downloads/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "nsis"],
+    "category": "Audio",
+    "shortDescription": "Podcast player with a fair, programmable queue",
+    "longDescription": "Eager to Listen for the desktop. Shares your shows, queue and progress with the Android app through your Drive sync folder.",
+    "homepage": "https://eagertobehealthy.com/eager-to-listen",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico"],
+    "linux": {
+      "deb": {
+        "depends": ["gstreamer1.0-plugins-good", "gstreamer1.0-plugins-bad", "gstreamer1.0-libav"]
+      }
+    }
+  }
+}

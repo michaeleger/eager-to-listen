@@ -1,0 +1,17 @@
+{
+  "name": "eager-to-listen-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Eager to Listen for Linux and Windows (Tauri).",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "linkedom": "^0.18"
+  }
+}

@@ -117,6 +117,7 @@ Full details: **[CHANGELOG.md](./CHANGELOG.md)**. Download: **[eagertobehealthy.
 │   ├── chapterParser.js                # PSC and description chapter parser
 │   ├── index.html                      # Semantic responsive player interface
 │   └── style.css                       # Modern dark mode theme styling
+├── desktop/                             # Desktop app for Linux (Windows later), Tauri; syncs with Android. See desktop/README.md
 ├── server.js                            # Node.js / Express proxy server (SSRF protected)
 ├── docs/adr/                            # Architectural Decision Records (ADR 0001: NWC)
 ├── ALPHA_TESTERS.md                     # Dedicated Alpha Tester Recruitment Guide
@@ -128,6 +129,9 @@ Full details: **[CHANGELOG.md](./CHANGELOG.md)**. Download: **[eagertobehealthy.
 ---
 
 ## 🛠️ Getting Started & Local Development
+
+### 🖥 Desktop App (Linux)
+See [desktop/README.md](desktop/README.md): build steps, rclone setup for phone sync, and what's in the alpha.
 
 ### 🌐 Running the Web Player Locally
 1. **Prerequisites**: Ensure [Node.js](https://nodejs.org) (v18+) is installed.
