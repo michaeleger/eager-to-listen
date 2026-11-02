@@ -5,6 +5,135 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [0.9.2-alpha] - 2026-11-02
+
+Fixes and features from the first round of 0.9.1 tester reports. Thank you to everyone who sent them in.
+
+📲 **Download:** signed APKs and release notes are on the app page, [eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen).
+
+**Updating from a test build (one time only):** 0.9.2 is the first signed release. If you installed an earlier test build, go to **Settings → Export Backup**, uninstall the old app, install 0.9.2, then **Settings → Restore Backup**. Future updates install right over the top.
+
+### 🚗 Car & Headset Controls
+- **Steering-wheel Next/Previous jump within the episode again (regression fix)**: 0.9.1 mapped car and headset Next/Previous to skipping whole episodes, so a stray press on the wheel dropped the episode you were listening to. They now jump forward/back by your skip times (default +90s / -15s).
+- **New setting: Settings → Player Controls → "Car / headset Next & Previous buttons"**: **Jump** (default) or **Skip episode**. It covers the steering wheel, Bluetooth headsets, Android Auto and the lock screen. The on-screen skip-episode buttons and Android Auto's "Skip episode" button always change episodes.
+- **Android Auto "Up next" shows the whole queue**: starting an episode from Android Auto's browse list used to load just that one episode. "Up next" now refills with the next 10 queued episodes, across all shows, whenever the playing episode changes.
+
+### ▶️ Player
+- **Controls no longer hide under the status bar, camera cut-out or navigation bar**: the collapse arrow, speed control and Bookmark button are reachable on edge-to-edge phones (e.g. Pixel 10 Pro XL) in portrait.
+- **Back gesture closes the player**: system Back collapses Now Playing to the mini player instead of leaving the app.
+- **Adjustable skip times**: rewind and forward can each be set to 10, 15, 30, 45, 60 or 90 seconds (defaults stay 15s back / 90s forward). The on-screen buttons, mini player, Android Auto buttons and car/headset jumps all follow the setting.
+- **Readable skip labels**: the seconds sit under the rewind/forward icons at a larger size instead of on top of them.
+- **Hide the "Save Idea / Bookmark" button** if you don't use it: Settings → Player Controls.
+- **Playing a saved bookmark starts at the bookmark** (Creator Inspiration Studio), including bookmarks in the first couple of seconds.
+
+### 🎙 Podcasts & Supporting Shows
+- **Easier way back to the podcast list**: a show's page has an "All Podcasts" back button at the top. Tapping the Podcasts tab again also closes an open show, and tapping the show name on Now Playing jumps to that show's page.
+- **Support Show is easier to find**: shows with a donate link get a ♥ button on their row in the podcast list, and "Support Show" is the filled, primary button on the show page and Now Playing.
+- **Boost hidden until it works**: the Lightning ⚡ Boost buttons and the wallet setup in Settings are hidden for now, since boosts can't be sent yet. Support Show is unaffected.
+- **Tidier episode rows**: Download and Remove from queue moved into the ⋮ menu, and "downloaded" shows once as a small ✓ icon, so titles and tags no longer get squeezed.
+- **No more duplicate shows**: subscribing to or importing a show you already have no longer creates a second copy (every episode twice, played status split between them). A show counts as the same when its feed address matches (ignoring http vs https, capitalization and a trailing slash, and including the original address of a feed that has moved) or when the feed's Podcasting 2.0 `<podcast:guid>` matches. Subscribing to a show you already follow under a new address says so and switches it to the new address.
+- **Discover's "Subscribed" badge** recognizes a feed even when the directory lists it with http vs https, different capitalization or a trailing slash.
+
+### ✅ Played Status
+- **Mark as played / unplayed** from the ⋮ menu on any episode, in the Queue tabs and in a podcast's episode list.
+- **Mark this & older as played / Mark this & newer as played** for a podcast, with a confirmation first, for catching up after an import.
+- **"Finished" is recorded once**: near the end of an episode the app used to re-run the finish work every 10 seconds (queue rebuild, deleting the downloaded file while it was still playing). It now marks the episode played once and leaves the file and queue rebuild until playback actually moves on, including when you pause, get interrupted or buffer near the end.
+- **Jumping to another episode can't un-play the one you left.**
+- **No more replaying a just-finished episode** when the next show is a News feed.
+
+### 📥 Import From Other Apps (Settings → Import)
+- **Podcast Addict full-backup import fixed** (checked against a real backup): the importer was opening the backup's settings file instead of its database, so full-backup imports failed. It also imported every show Podcast Addict had ever seen (1,960 instead of the 5 actually subscribed in the sample), made every show Priority 1, read durations like "32:12" as 32 seconds (which marked any started episode as played) and misread resume points. It now brings over only real subscriptions, renamed show titles, per-show speeds, played status and resume points.
+- **Import from AntennaPod**: AntennaPod's "Database export" (.db) brings over your followed shows, played episodes, resume points, per-show speed and skip intro / ending.
+- **Import from Podverse**: Podverse's "Export OPML" file imports your subscriptions, including files Podverse's exporter wrote with broken quotes. OPML from any other app gets the same safety net. (Podverse doesn't export listening history.)
+- **Imports merge into shows you already have**: played status and resume points carry over to shows you'd subscribed to first (the furthest resume point wins), per-show speed and skip intro / outro fill in where you hadn't changed them, a show you'd removed is subscribed again, and a show listed twice in one file is imported once.
+- **Imports refresh right away**, so OPML-imported shows don't sit empty until a manual refresh.
+- Imported plays keep their original play dates, so imported shows don't all look "just heard" to the queue's fair-rotation rules.
+
+### 📁 Local Folder Shows ("Virtual Feeds")
+- **Settings → Import → "Add a Folder of Audio Files as a Show"** turns a folder of MP3s (or M4A, AAC, OGG, Opus, WAV, FLAC) on your phone into a show, for archived episodes that no longer have a feed.
+- Each file plays as an episode in filename order ("Ep 2" before "Ep 10"), using the file's own title tag when it has one.
+- Copy more files in and refresh the show to pick them up. Files you remove are hidden and dropped from the queue, and come back if you put them back.
+- Played status, resume points, the queue and Android Auto work like any other show.
+- **Your files are never changed or deleted.** Local shows are skipped by downloads, download cleanup, OPML export and Google Drive sync, and the app only asks for read access to the folder.
+- One folder = one show (add each subfolder separately). If you move or rename the folder, add it again.
+
+### 🛠 Stability & Diagnostics
+- **Feed refresh hardening**: a feed too large to parse fails on its own instead of crashing the app, a failure while rebuilding the queue after a refresh no longer crashes the app, and only one full refresh runs at a time.
+- **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings → "Email Last Crash Report".
+- **Database update (schema v7)**: stores each show's `<podcast:guid>` for duplicate detection. It fills in on the next feed refresh.
+
+---
+
+## [0.9.1-alpha] - 2026-10-27
+
+### 🔄 In-Car Track Navigation & Audio Interruption Recovery
+- **Dedicated Track Navigation**: Re-mapped on-screen and hardware/steering-wheel Next Track (`>|`) to queue advance and Previous Track (`|<`) to episode restart (>5s) or history rewind (≤5s).
+- **Audio Interruption & Device Recovery**: ExoPlayer error handler retries transient audio-device errors and route changes without dismissing unplayable episodes.
+- **Queue History Navigation**: In-memory playback history queue enables reverse navigation across previous episodes.
+- **Nostr Wallet Connect Security**: Switched NWC credentials to Android Keystore EncryptedSharedPreferences.
+- **Evergreen Queue Strategy Alignment**: Programmed queue now orders Evergreen feeds newest-first followed by next newest.
+
+---
+
+## [0.9.0-alpha] - 2026-10-24
+
+### 🚀 Google Play Closed Testing Milestone Release
+
+#### 🔒 Data Integrity & Schema Migration (Phases 0 & 1)
+- **Room SQLite Schema v6**: Implemented `MIGRATION_5_6` with Room schema JSON export and automated migration verification. Removed destructive fallback migration.
+- **Feed URL Normalization**: Standardized feed URLs using `FeedUrl.normalize()` to strip tracking parameters and enforce lowercase schemes and hostnames.
+- **Composite Episode IDs**: Implemented `EpisodeId.of(podcastId, guid, enclosureUrl)` with SHA-256 fallback to prevent collision between podcasts or duplicate episodes.
+- **Atomic Operations**: Migrated insert queries to Room `@Upsert` to guarantee idempotent writes.
+
+#### 🚗 In-Car Playback & Media Controls (Phase 2)
+- **Centralized Playback Configuration**: Extracted `PlaybackConfig` defining dedicated +90s forward jump and -15s rewind seek intervals.
+- **Dedicated Track Navigation**: Added dedicated on-screen Next Episode advance button alongside seek controls. Media button routing cleanly separates playlist advancement from seeking.
+- **Per-Show Playback Speeds**: Audio playback speed is now persisted per-podcast and seamlessly restored on episode change.
+- **Live Inactivity Timeout**: Automated 90-minute live broadcast stream inactivity timeout cleanly advances playback to the next programmed playlist episode.
+
+#### 📻 Pure Queue Engine & Invariants (Phase 3)
+- **Pure Domain Engine**: Extracted `QueueEngine.kt` decoupled from Android framework dependencies, fully verified with 28 automated unit tests.
+- **Core Invariants Strictly Maintained**:
+  - **Invariant I1**: Never replay heard content. High-water mark tracking guarantees older episodes are never erroneously re-enqueued.
+  - **Invariant I2**: Played state is durable. Completed status is never cleared except by explicit user action.
+  - **Invariant I3**: User settings win. Local feed customizations are never overridden by remote sync.
+  - **Invariant I4**: Pinned manual items survive automatic queue recalculations.
+  - **Invariant I5**: Room database queue is the single source of truth.
+- **Radio U Rotation**: Implemented 4 play order strategies (`NEWS`, `CHRONOLOGICAL`, `REVERSE_CHRONOLOGICAL`, `EVERGREEN`), anti-binge consecutive caps, and round-robin fair interleaving.
+
+#### 🔄 Format 2 Sync & Backup (Phase 4)
+- **Format 2 JSON Serializer**: Supports comprehensive backup and two-device synchronization via `SyncSerializer.kt`.
+- **Atomic Write Safety**: Backups write to `.tmp.json`, validate JSON integrity, backup previous file to `.bak.json`, and perform atomic rename.
+- **LWW Rule Merging**: Feed rule merging using timestamped `settingsUpdatedAt` ensures user rule changes synchronize reliably across devices.
+- **Tombstone Soft-Unsubscribes**: Soft-unsubscribing preserves episode played history and local rules while syncing removal across devices.
+- **SAF Backup & Restore UI**: Added Export Backup, Restore Backup, and History Purge actions in Settings.
+
+#### 💾 Background Offline Queue Ahead & WorkManager (Phase 5)
+- **DownloadQueueWorker**: WorkManager `CoroutineWorker` running with `FOREGROUND_SERVICE_DATA_SYNC` progress notifications.
+- **Partial Download Resume**: Implemented HTTP `Range` request resuming using `.part` temporary files.
+- **Storage Protection & Cellular Toggle**: Checks device storage and respects the "Allow downloads over cellular" toggle.
+- **Weekly Orphan Sweeper**: Automated cleanup removes stale or unreferenced downloaded media files.
+
+#### 📤 OPML Subscription Export (Phase 6)
+- **OPML 2.0 Exporter**: Added standard OPML 2.0 subscription export via Android Storage Access Framework (`CreateDocument`).
+- **XML Sanitization**: Escapes XML entities in titles, feed URLs, and categories to guarantee compliance across all podcast players.
+
+#### ⚡ Value-for-Value & Nostr Wallet Connect (Phase 7)
+- **Feature-Flagged NWC**: Integrated Nostr Wallet Connect (NIP-47) behind `FeatureFlags.V4V_NWC` (active in debug builds, disabled in release builds).
+- **Proportional Split Math**: Deterministic satoshi split calculations across creators, contributors, and hosting fees (`V4VSplitMath`). Remainder satoshis are assigned to the primary creator.
+- **Podcasting 2.0 / bLIP-10 Boostagrams**: Generates TLV record `7629169` boostagram metadata (feed, episode, timestamp, speed, action, message, sender).
+- **Hardware KeyStore Secret Storage**: Persists NWC connection secrets using hardware-backed AES-256-GCM encryption in Android KeyStore.
+- **Architectural Decision Record**: Documented in `docs/adr/0001-nwc.md`.
+
+#### 🛡️ Play Store Readiness & Security Hardening (Phases 8 & 9)
+- **Security & Extraction Rules**: Added `network_security_config.xml` (cleartext permission for legacy podcast audio enclosures) and `data_extraction_rules.xml` (excludes downloads and secrets from cloud backups).
+- **Transcript Parser Precedence Fix**: Corrected arithmetic precedence in timestamp parsing (`((val * 1000).toLong())`).
+- **Release Verification**: Verified clean R8 / Proguard compilation and lint vital analysis for `assembleRelease`.
+- **Web Proxy SSRF Hardening**: Enforced private/loopback/link-local IP filtering and 15MB response limits on Node.js proxy.
+- **Web Client XSS Defense**: Sanitized shownotes and escaped HTML across all DOM injection points.
+
+---
+
 ## [0.5.1-alpha] - 2026-10-23
 
 ### 🚗 In-Car & Steering Wheel Controls
