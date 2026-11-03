@@ -129,12 +129,14 @@ export function parseFeed(xmlText, podcastId, { DOMParser: DP = globalThis.DOMPa
     const order = feedOrder++;
     if (episodes.length >= MAX_RAW_ITEMS_PER_FEED) continue;
     let title = '', guid = '', audioUrl = '', description = '', publishedAt = 0, durationSeconds = 0;
+    let link = '';
     let artworkUrl = null, transcriptUrl = null, transcriptType = null, chaptersUrl = null, fundingUrl = null;
 
     for (const el of descendants(item)) {
       const name = lname(el);
       const pre = prefix(el);
       if (name === 'title' && el.parentNode === item) title = text(el);
+      else if (name === 'link' && el.parentNode === item && !prefix(el)) link = text(el).trim();
       else if (name === 'guid' && el.parentNode === item) guid = text(el);
       else if (name === 'enclosure') {
         const url = attr(el, 'url');
@@ -169,6 +171,7 @@ export function parseFeed(xmlText, podcastId, { DOMParser: DP = globalThis.DOMPa
       podcastId,
       title: title.trim() ? title : 'Untitled Episode',
       audioUrl,
+      link: link || null,
       publishedAt,
       durationSeconds,
       description,

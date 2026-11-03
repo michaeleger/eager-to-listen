@@ -151,7 +151,11 @@ export function serialize(lib, deviceId, writtenAt = Date.now()) {
       quoteText: i.quoteText,
       tags: i.tags,
       createdAt: i.createdAt,
+      updatedAt: i.updatedAt || i.createdAt,
     })),
+    inspirationsRemoved: Object.keys(lib.inspirationsRemoved || {})
+      .sort()
+      .map((id) => ({ id, removedAt: lib.inspirationsRemoved[id] })),
   };
 }
 
@@ -238,8 +242,17 @@ export function parse(json, now = Date.now()) {
       quoteText: optStr(o, 'quoteText', ''),
       tags: optStr(o, 'tags', ''),
       createdAt: optLong(o, 'createdAt', now),
+      // Files from 0.9.2 have no edit time; the creation time stands in
+      updatedAt: optLong(o, 'updatedAt', optLong(o, 'createdAt', now)),
     };
   });
+
+  const inspirationsRemoved = {};
+  for (const r of Array.isArray(j.inspirationsRemoved) ? j.inspirationsRemoved : []) {
+    const id = optStr(r, 'id', '');
+    const at = optLong(r, 'removedAt', 0);
+    if (id && at > 0 && !(inspirationsRemoved[id] >= at)) inspirationsRemoved[id] = at;
+  }
 
   return {
     format,
@@ -250,6 +263,7 @@ export function parse(json, now = Date.now()) {
     manualQueue,
     inspirations,
     manualQueueRemoved: unpinsFromJson(j.manualQueueRemoved),
+    inspirationsRemoved,
   };
 }
 
@@ -470,8 +484,23 @@ export function merge(lib, remote) {
     }
   }
 
-  // 4. Inspirations (bookmarks): upsert
-  for (const clip of remote.inspirations) lib.inspirations[clip.id] = clip;
+  // 4. Bookmarks: removals (deleted or cleared) win when at least as new as the bookmark's last
+  // edit; otherwise the newer edit wins. Removals are kept so they pass on to a third device.
+  lib.inspirationsRemoved = lib.inspirationsRemoved || {};
+  for (const [id, at] of Object.entries(remote.inspirationsRemoved || {})) {
+    if (!(lib.inspirationsRemoved[id] >= at)) lib.inspirationsRemoved[id] = at;
+  }
+  const editedAt = (c) => c.updatedAt || c.createdAt || 0;
+  for (const [id, at] of Object.entries(lib.inspirationsRemoved)) {
+    const local = lib.inspirations[id];
+    if (local && at >= editedAt(local)) delete lib.inspirations[id];
+  }
+  for (const clip of remote.inspirations) {
+    const removedAt = lib.inspirationsRemoved[clip.id];
+    if (removedAt != null && removedAt >= editedAt(clip)) continue;
+    const local = lib.inspirations[clip.id];
+    if (!local || editedAt(clip) > editedAt(local)) lib.inspirations[clip.id] = clip;
+  }
 
   return {
     podcastsSynced: mergedPodcasts,

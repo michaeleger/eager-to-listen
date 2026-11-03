@@ -14,7 +14,11 @@ export function emptyLibrary() {
     podcasts: {}, // id -> podcast
     episodes: {}, // id -> episode
     queue: [], // [{episodeId, podcastId, orderIndex, addedAt, isManual, manualIndex}]
-    inspirations: {}, // id -> clip
+    inspirations: {}, // id -> clip (bookmark)
+    inspirationsRemoved: {}, // id -> removedAt (deleted or cleared bookmarks, synced)
+    archived: {}, // id -> updatedAt last confirmed in the Drive archive (this PC only)
+    removedUnarchived: {}, // id -> copy of a bookmark removed before it reached the archive
+    bookmarkMeta: {}, // id -> { transcriptExcerpt, timing } cached for the archive (this PC only)
     pending: {}, // episodeId -> sync state waiting for its feed to load
     unpins: {}, // episodeId -> removedAt (pins removed by hand, R2.7)
     settings: {
@@ -83,6 +87,7 @@ export function newEpisode(fields) {
     skippedAt: null,
     skipCount: 0,
     updatedAt: 0,
+    link: null, // the episode's web page (RSS <link>)
     transcriptUrl: null,
     transcriptType: null,
     chaptersUrl: null,
@@ -416,6 +421,7 @@ export function applyFeedRefresh(lib, podcastId, parsed, now = Date.now()) {
         artworkUrl: item.artworkUrl || existing.artworkUrl,
         publishedAt: item.publishedAt || existing.publishedAt,
         durationSeconds: item.durationSeconds || existing.durationSeconds,
+        link: item.link || existing.link || null,
         transcriptUrl: item.transcriptUrl ?? existing.transcriptUrl,
         transcriptType: item.transcriptType ?? existing.transcriptType,
         chaptersUrl: item.chaptersUrl ?? existing.chaptersUrl,
