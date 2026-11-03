@@ -7,8 +7,10 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "dev": "tauri dev",
-    "build": "tauri build",
-    "tauri": "tauri"
+    "build": "tauri build --bundles appimage",
+    "tauri": "tauri",
+    "build:deb": "tauri build --bundles deb",
+    "build:windows": "tauri build --bundles nsis"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

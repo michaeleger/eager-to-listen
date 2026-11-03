@@ -36,6 +36,8 @@ const state = {
   downloads: {}, // episodeId -> {received,total}
   searchResults: null,
   rclone: null,
+  finder: null, // { busy, results, error } for "Find my sync folder"
+  browser: null, // { target, folders, hasSyncFile, busy, error } for picking a folder by hand
 };
 
 // ---------------------------------------------------------------- helpers
@@ -635,24 +637,106 @@ function viewBookmarks() {
       .join('')}</div>`;
 }
 
+// "remote:" / "remote:A/B" (rclone) or "/home/me/A" (local) path helpers for the folder browser
+function childOf(target, name) {
+  if (target.endsWith(':') || target.endsWith('/')) return target + name;
+  return `${target}/${name}`;
+}
+function parentOf(target) {
+  if (target.endsWith(':') || target === '/') return null;
+  const i = target.lastIndexOf('/');
+  if (i >= 0) return i === 0 ? '/' : target.slice(0, i);
+  const c = target.indexOf(':');
+  return c >= 0 ? target.slice(0, c + 1) : null;
+}
+
+async function findSyncFolder() {
+  state.finder = { busy: true, results: [] };
+  render();
+  try {
+    const results = await invoke('sync_find', { remote: null });
+    state.finder = { busy: false, results };
+  } catch (e) {
+    state.finder = { busy: false, results: [], error: String(e) };
+  }
+  if (state.view === 'settings') render();
+}
+
+async function browse(target) {
+  state.browser = { target, folders: [], hasSyncFile: false, busy: true };
+  render();
+  try {
+    const r = await invoke('sync_browse', { target });
+    state.browser = { ...r, busy: false };
+  } catch (e) {
+    state.browser = { target, folders: [], hasSyncFile: false, busy: false, error: String(e) };
+  }
+  if (state.view === 'settings') render();
+}
+
+function useSyncFolder(target) {
+  state.lib.settings.syncFolder = target;
+  state.finder = null;
+  state.browser = null;
+  persist();
+  toast(`Sync folder set to ${target}`);
+  syncNow();
+}
+
 function viewSettings() {
   const s = state.lib.settings;
   const rc = state.rclone;
   const rcLine = !rc
     ? 'Checking for rclone…'
     : rc.installed
-      ? `rclone found (${esc(rc.version || '')}). Remotes: ${rc.remotes.length ? rc.remotes.map((r) => `<code>${esc(r)}</code>`).join(' ') : 'none yet'}`
-      : `<span style="color:var(--danger)">rclone isn't installed.</span> Install it with <code>sudo apt install rclone</code>, then run <code>rclone config</code> and add a Google Drive remote.`;
+      ? `rclone found at <code>${esc(rc.path || 'rclone')}</code> (${esc(rc.version || '')}). Drive connections: ${rc.remotes.length ? rc.remotes.map((r) => `<code>${esc(r)}</code>`).join(' ') : 'none yet. Run <code>rclone config</code> once to connect Google Drive.'}`
+      : `<span style="color:var(--danger)">rclone isn't installed.</span> No sudo needed: put the rclone program in <code>~/.local/bin</code> (steps in the desktop README), then run <code>rclone config</code> once to connect Google Drive.`;
   const opt = (vals, cur, fmt = (v) => v) => vals.map((v) => `<option value="${v}" ${Number(cur) === v ? 'selected' : ''}>${fmt(v)}</option>`).join('');
+  const f = state.finder;
+  const finder = !f
+    ? ''
+    : f.busy
+      ? '<p class="sub">Searching your Drive for eagertolisten_sync.json… a big Drive can take a minute.</p>'
+      : f.error
+        ? `<p class="sub" style="color:var(--danger)">${esc(f.error)}</p>`
+        : f.results.length
+          ? `<div class="list" style="margin-bottom:14px">${f.results
+              .map(
+                (r, i) => `<div class="item" style="grid-template-columns:1fr auto">
+              <div class="meta"><div class="title">${esc(r.target)}</div>
+                <div class="line2">${i === 0 ? '<span class="tag pin">Most recent</span>' : ''}Last written ${r.modTime ? esc(new Date(r.modTime).toLocaleString()) : 'unknown'}</div></div>
+              <div class="actions"><button class="btn small" data-action="use-sync-folder" data-target="${esc(r.target)}">Use this folder</button></div></div>`,
+              )
+              .join('')}</div>`
+          : `<p class="sub">No <code>eagertolisten_sync.json</code> found. Sync once from the phone (Settings → Google Drive Sync → Sync now), then search again, or pick a folder below.</p>`;
+  const b = state.browser;
+  const browser = !b
+    ? ''
+    : `<div class="card"><p><strong>${esc(b.target)}</strong>${b.hasSyncFile ? ' <span class="tag done">has the sync file</span>' : ''}</p>
+        ${b.error ? `<p style="color:var(--danger)">${esc(b.error)}</p>` : ''}
+        <div class="row-actions">
+          <button class="btn small" data-action="use-sync-folder" data-target="${esc(b.target)}">Use this folder</button>
+          ${parentOf(b.target) ? `<button class="ghost small" data-action="browse" data-target="${esc(parentOf(b.target))}">↑ Up</button>` : ''}
+          <button class="ghost small" data-action="browse-close">Close</button>
+        </div>
+        ${b.busy ? '<p class="sub">Loading…</p>' : `<div class="row-actions">${b.folders
+          .map((name) => `<button class="ghost small" data-action="browse" data-target="${esc(childOf(b.target, name))}">📁 ${esc(name)}</button>`)
+          .join('') || '<span class="sub">No folders here.</span>'}</div>`}
+      </div>`;
   return `<h1>Settings</h1>
     <h2>Phone sync</h2>
     <div class="card">
-      <p>The PC reads and writes the same <code>eagertolisten_sync.json</code> your phone keeps in Google Drive, so shows, queue, progress and bookmarks match on both.</p>
-      <p>Use the same Drive folder you picked on the phone (Settings → Google Drive Sync). With rclone, write it as <code>remote:Folder</code>, for example <code>gdrive:EagerToListen</code>. A plain folder path works too, if that folder already mirrors Drive.</p>
+      <p>The PC reads and writes the same <code>eagertolisten_sync.json</code> your phone keeps in Google Drive, so shows, queue, progress and bookmarks match on both. It needs the folder you picked on the phone, wherever that is.</p>
       <p>${rcLine}</p>
+      <div class="row-actions">
+        <button class="btn small" data-action="find-sync-folder" ${!rc?.installed || f?.busy ? 'disabled' : ''}>Find my sync folder</button>
+        ${rc?.installed ? rc.remotes.map((r) => `<button class="ghost small" data-action="browse" data-target="${esc(r)}">Browse ${esc(r)}</button>`).join('') : ''}
+      </div>
     </div>
+    ${finder}${browser}
     <form class="form" id="syncForm">
-      <label for="s-folder">Sync folder</label><input id="s-folder" type="text" name="syncFolder" value="${esc(s.syncFolder || '')}" placeholder="gdrive:EagerToListen" />
+      <label for="s-folder">Sync folder</label><input id="s-folder" type="text" name="syncFolder" value="${esc(s.syncFolder || '')}" autocomplete="off" spellcheck="false" />
+      <div class="hint">${s.syncFolder ? 'Set.' : 'Not set yet.'} An rclone folder looks like <code>remote:Path/To/Folder</code>; a folder on this computer is a full path.</div>
       <label for="s-auto">Sync automatically</label><input id="s-auto" type="checkbox" name="autoSync" ${s.autoSync ? 'checked' : ''} />
       <div class="hint">After each episode, when you pause, and every 15 minutes.</div>
       <span></span><div class="row-actions"><button class="btn" type="submit">Save & sync now</button></div>
@@ -850,6 +934,19 @@ document.addEventListener('click', (e) => {
       break;
     case 'play-bookmark':
       playBookmark(id);
+      break;
+    case 'find-sync-folder':
+      findSyncFolder();
+      break;
+    case 'browse':
+      browse(el.dataset.target);
+      break;
+    case 'browse-close':
+      state.browser = null;
+      render();
+      break;
+    case 'use-sync-folder':
+      useSyncFolder(el.dataset.target);
       break;
     case 'open-url':
       T.opener.openUrl(el.dataset.url).catch((err) => toast(`Couldn't open the link: ${err}`));

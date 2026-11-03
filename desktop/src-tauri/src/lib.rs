@@ -154,7 +154,7 @@ fn parse_target(t: &str) -> CmdResult<Target> {
         return Ok(Target::Folder(p));
     }
     if !t.contains(':') {
-        return Err("Use an rclone remote like gdrive:EagerToListen, or a full folder path.".into());
+        return Err("Use an rclone remote and folder (remote:Folder), or a full folder path.".into());
     }
     Ok(Target::Rclone(t.trim_end_matches('/').to_string()))
 }
@@ -167,8 +167,37 @@ fn rclone_path(remote: &str, name: &str) -> String {
     }
 }
 
+/// Where rclone lives. Desktop launchers often don't include ~/.local/bin on the PATH, and on a
+/// box without sudo that's exactly where a user-level rclone gets installed, so look there too.
+fn rclone_bin() -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "rclone.exe" } else { "rclone" };
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join(exe);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)?;
+    [
+        home.join(".local/bin").join(exe),
+        home.join("bin").join(exe),
+        home.join("rclone").join(exe),
+        PathBuf::from("/usr/local/bin").join(exe),
+        PathBuf::from("/usr/bin").join(exe),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
 async fn rclone(args: &[&str], stdin: Option<&[u8]>) -> CmdResult<Vec<u8>> {
-    let mut cmd = tokio::process::Command::new("rclone");
+    rclone_with_timeout(args, stdin, Duration::from_secs(120)).await
+}
+
+async fn rclone_with_timeout(args: &[&str], stdin: Option<&[u8]>, limit: Duration) -> CmdResult<Vec<u8>> {
+    let bin = rclone_bin().ok_or("rclone isn't installed. See Settings for how to add it without sudo.")?;
+    let mut cmd = tokio::process::Command::new(bin);
     cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     #[cfg(windows)]
@@ -187,9 +216,9 @@ async fn rclone(args: &[&str], stdin: Option<&[u8]>) -> CmdResult<Vec<u8>> {
         pipe.write_all(bytes).await.map_err(err)?;
         drop(pipe);
     }
-    let out = tokio::time::timeout(Duration::from_secs(120), child.wait_with_output())
+    let out = tokio::time::timeout(limit, child.wait_with_output())
         .await
-        .map_err(|_| "rclone took longer than 2 minutes.".to_string())?
+        .map_err(|_| format!("rclone took longer than {} seconds.", limit.as_secs()))?
         .map_err(err)?;
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr);
@@ -293,6 +322,7 @@ async fn sync_write(target: String, json: String) -> CmdResult<()> {
 #[serde(rename_all = "camelCase")]
 struct RcloneStatus {
     installed: bool,
+    path: Option<String>,
     version: Option<String>,
     remotes: Vec<String>,
     error: Option<String>,
@@ -301,14 +331,118 @@ struct RcloneStatus {
 #[tauri::command]
 async fn rclone_status() -> RcloneStatus {
     match rclone(&["version"], None).await {
-        Err(e) => RcloneStatus { installed: false, version: None, remotes: vec![], error: Some(e) },
+        Err(e) => RcloneStatus { installed: false, path: None, version: None, remotes: vec![], error: Some(e) },
         Ok(v) => {
             let version = String::from_utf8_lossy(&v).lines().next().map(|s| s.trim().to_string());
             let remotes = rclone(&["listremotes"], None)
                 .await
                 .map(|r| String::from_utf8_lossy(&r).lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
                 .unwrap_or_default();
-            RcloneStatus { installed: true, version, remotes, error: None }
+            let path = rclone_bin().map(|p| p.to_string_lossy().into_owned());
+            RcloneStatus { installed: true, path, version, remotes, error: None }
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FoundSyncFolder {
+    /// Ready to use as the sync folder, e.g. "gdrive:Apps/Eager to Listen"
+    target: String,
+    mod_time: Option<String>,
+    size: Option<u64>,
+}
+
+fn remote_join(remote: &str, dir: &str) -> String {
+    // remote is "name:" or "name:sub/path"; dir is relative to it
+    let dir = dir.trim_matches('/');
+    if dir.is_empty() {
+        remote.to_string()
+    } else if remote.ends_with(':') {
+        format!("{remote}{dir}")
+    } else {
+        format!("{}/{dir}", remote.trim_end_matches('/'))
+    }
+}
+
+/// Find the phone's sync file wherever it was saved: search every rclone remote (or just the
+/// one given) for eagertolisten_sync.json. Nothing about the folder is assumed or hard coded.
+#[tauri::command]
+async fn sync_find(remote: Option<String>) -> CmdResult<Vec<FoundSyncFolder>> {
+    let remotes: Vec<String> = match remote.filter(|r| !r.trim().is_empty()) {
+        Some(r) => vec![r.trim().to_string()],
+        None => String::from_utf8_lossy(&rclone(&["listremotes"], None).await?)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    };
+    if remotes.is_empty() {
+        return Err("rclone has no remotes yet. Run `rclone config` once to connect Google Drive.".into());
+    }
+    let mut found = Vec::new();
+    let mut errors = Vec::new();
+    for r in &remotes {
+        let args = ["lsjson", "-R", "--fast-list", "--files-only", "--no-mimetype", "--include", SYNC_MAIN, r.as_str()];
+        match rclone_with_timeout(&args, None, Duration::from_secs(300)).await {
+            Ok(raw) => {
+                let items: Vec<serde_json::Value> = serde_json::from_slice(&raw).map_err(err)?;
+                for it in items {
+                    let path = it.get("Path").and_then(|p| p.as_str()).unwrap_or_default();
+                    let dir = path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+                    found.push(FoundSyncFolder {
+                        target: remote_join(r, dir),
+                        mod_time: it.get("ModTime").and_then(|m| m.as_str()).map(String::from),
+                        size: it.get("Size").and_then(|s| s.as_u64()),
+                    });
+                }
+            }
+            Err(e) => errors.push(format!("{r} {e}")),
+        }
+    }
+    if found.is_empty() && !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    // Newest first: the folder the phone wrote to most recently is almost always the right one
+    found.sort_by(|a, b| b.mod_time.cmp(&a.mod_time));
+    Ok(found)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowseResult {
+    target: String,
+    folders: Vec<String>,
+    has_sync_file: bool,
+}
+
+/// List the folders inside a remote or local folder, for picking a sync folder by hand.
+#[tauri::command]
+async fn sync_browse(target: String) -> CmdResult<BrowseResult> {
+    match parse_target(&target)? {
+        Target::Folder(dir) => {
+            let mut folders = Vec::new();
+            let mut has_sync_file = false;
+            let mut rd = tokio::fs::read_dir(&dir).await.map_err(|e| format!("Can't open {}: {e}", dir.display()))?;
+            while let Some(entry) = rd.next_entry().await.map_err(err)? {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let ft = entry.file_type().await.map_err(err)?;
+                if ft.is_dir() && !name.starts_with('.') {
+                    folders.push(name);
+                } else if name == SYNC_MAIN {
+                    has_sync_file = true;
+                }
+            }
+            folders.sort_by_key(|f| f.to_lowercase());
+            Ok(BrowseResult { target, folders, has_sync_file })
+        }
+        Target::Rclone(remote) => {
+            let raw = rclone(&["lsf", "--max-depth", "1", &remote], None).await?;
+            let text = String::from_utf8_lossy(&raw);
+            let mut folders: Vec<String> = text.lines().filter_map(|l| l.strip_suffix('/')).map(String::from).collect();
+            folders.sort_by_key(|f| f.to_lowercase());
+            let has_sync_file = text.lines().any(|l| l == SYNC_MAIN);
+            Ok(BrowseResult { target: remote, folders, has_sync_file })
         }
     }
 }
@@ -399,6 +533,8 @@ pub fn run() {
             sync_write,
             sync_delete,
             rclone_status,
+            sync_find,
+            sync_browse,
             download_episode,
             delete_download
         ])
@@ -420,6 +556,13 @@ mod tests {
         assert!(parse_target("justaname").is_err());
         assert_eq!(rclone_path("gdrive:", "a.json"), "gdrive:a.json");
         assert_eq!(rclone_path("gdrive:Sync", "a.json"), "gdrive:Sync/a.json");
+    }
+
+    #[test]
+    fn joins() {
+        assert_eq!(remote_join("gd:", ""), "gd:");
+        assert_eq!(remote_join("gd:", "Apps/Eager to Listen"), "gd:Apps/Eager to Listen");
+        assert_eq!(remote_join("gd:Base", "Sub"), "gd:Base/Sub");
     }
 
     #[test]

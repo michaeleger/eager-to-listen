@@ -26,28 +26,54 @@ desktop/
 same commit.** The tests in `test/` are ported from the Kotlin tests, so a rule that drifts on one
 side shows up as a failing test once the other side is updated.
 
-## Phone sync on Linux (rclone)
+## Install on Linux without sudo (AppImage)
 
-Linux has no Google Drive app, so the desktop reaches your Drive folder through
-[rclone](https://rclone.org). One-time setup:
+Test builds ship as a single AppImage. It carries its own WebKit and audio codecs, so nothing
+needs installing system-wide and no sudo is needed.
 
 ```bash
-sudo apt install rclone          # Ubuntu/Debian; or see rclone.org/install
-rclone config                    # n (new remote) -> name: gdrive -> storage: drive -> follow the prompts
-rclone lsf gdrive:               # should list your Drive's top folders
+mkdir -p ~/Apps && mv ~/Downloads/Eager*.AppImage ~/Apps/
+chmod +x ~/Apps/Eager*.AppImage
+~/Apps/Eager*.AppImage
+# If it says FUSE is missing (common on locked-down boxes), run it this way instead:
+~/Apps/Eager*.AppImage --appimage-extract-and-run
 ```
 
-Then in the app: **Settings → Phone sync → Sync folder** = `gdrive:<the folder you picked on the
-phone>`, for example `gdrive:EagerToListen`. Folder names with spaces work as typed.
+Your library lives in `~/.local/share/com.eagertolisten.desktop/` (`library.json`, a `.bak`
+copy, and `downloads/`).
 
-A plain folder path (for example a folder that some other tool already mirrors from Drive) works
-too. The app uses the phone's exact steps: it merges every `eagertolisten_sync*.json` copy, writes
-`.tmp.json`, reads it back, keeps a `.bak.json`, then writes the main file and removes the
-conflict copies.
+## Phone sync on Linux (rclone, no sudo)
 
-## Run it from source
+Linux has no Google Drive app, so the desktop reaches your Drive through
+[rclone](https://rclone.org). rclone is a single program; it can live in your home folder:
 
-Needs Node 18+, Rust (rustup), and the WebKitGTK build libraries:
+```bash
+mkdir -p ~/.local/bin && cd /tmp
+curl -LO https://downloads.rclone.org/rclone-current-linux-amd64.zip
+python3 -m zipfile -e rclone-current-linux-amd64.zip .
+cp rclone-*-linux-amd64/rclone ~/.local/bin/ && chmod +x ~/.local/bin/rclone
+~/.local/bin/rclone config     # n (new remote) -> any name -> storage: drive -> follow the prompts
+```
+
+The app finds rclone in `~/.local/bin` even when that folder isn't on the PATH. The remote can
+have any name; nothing in the app assumes one. (Signing in opens a browser on the same machine;
+over remote desktop that works. On a box with no browser at all, answer "n" to auto config and
+follow rclone's instructions to authorize from another computer.)
+
+Then in the app, **Settings → Phone sync → Find my sync folder**. It searches your Drive for the
+phone's `eagertolisten_sync.json`, wherever you saved it, and lists the folders that have it,
+newest first. Pick one. You can also **Browse** your Drive and pick a folder by hand (for example
+before the phone has synced even once), or type the folder in yourself as `remote:Path/To/Folder`.
+A plain folder path works too, if some other tool already mirrors that Drive folder locally.
+
+The app uses the phone's exact steps when it syncs: it merges every `eagertolisten_sync*.json`
+copy, writes `.tmp.json`, reads it back, keeps a `.bak.json`, then writes the main file and removes
+the conflict copies.
+
+## Build from source
+
+This needs the WebKitGTK development libraries, which do need sudo, so build on a machine where
+you have it (or in the cloud workspace) and copy the AppImage over:
 
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
@@ -55,16 +81,11 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
 cd desktop
 npm install
-npm test          # shared-rule tests (JS)
-npm run dev       # opens the app
-npm run build     # .deb + AppImage in src-tauri/target/release/bundle/
+npm test             # shared-rule tests (JS); no system libraries needed for these
+npm run dev          # opens the app
+npm run build        # AppImage in src-tauri/target/release/bundle/appimage/
+npm run build:deb    # a .deb, for machines where you can install packages
 ```
-
-The `gstreamer1.0-*` packages are what WebKitGTK uses to play MP3/AAC. Without them episodes
-won't play. The `.deb` lists them as dependencies, so `sudo apt install ./Eager*.deb` pulls them in.
-
-Your library lives in `~/.local/share/com.eagertolisten.desktop/` (`library.json`, a `.bak`
-copy, and `downloads/`).
 
 ## Windows (later)
 
