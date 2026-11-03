@@ -129,6 +129,39 @@ async fn fetch_text(url: String, etag: Option<String>, last_modified: Option<Str
     Ok(FetchResult { status, body: String::from_utf8_lossy(&body).into_owned(), final_url, etag, last_modified })
 }
 
+/// Podcast Index API (podcastindex.org), signed the way the Android client signs it:
+/// Authorization = sha1(key + secret + unix seconds). Keys are the user's own, from Settings.
+#[tauri::command]
+async fn podcastindex_get(path: String, api_key: String, api_secret: String) -> CmdResult<String> {
+    let (key, secret) = (api_key.trim(), api_secret.trim());
+    if key.is_empty() || secret.is_empty() {
+        return Err("Add your Podcast Index API key and secret in Settings.".into());
+    }
+    let allowed = ["search/byterm?", "podcasts/bycategory?", "podcasts/trending?", "podcasts/byfeedurl?"];
+    if !allowed.iter().any(|a| path.starts_with(a)) {
+        return Err("That Podcast Index request isn't supported.".into());
+    }
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_secs().to_string();
+    let auth = sha1_smol::Sha1::from(format!("{key}{secret}{ts}")).digest().to_string();
+    let resp = http_client()?
+        .get(format!("https://api.podcastindex.org/api/1.0/{path}"))
+        .header("X-Auth-Date", &ts)
+        .header("X-Auth-Key", key)
+        .header("Authorization", auth)
+        .send()
+        .await
+        .map_err(|e| format!("Couldn't reach Podcast Index: {e}"))?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(err)?;
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err("Podcast Index turned down the API key or secret. Check them in Settings.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("Podcast Index returned an error ({status})."));
+    }
+    Ok(body)
+}
+
 // ---------------------------------------------------------------- sync target
 //
 // A target is either a local folder ("/home/me/Drive/EagerToListen") or an rclone remote path
@@ -533,6 +566,7 @@ pub fn run() {
             sync_write,
             sync_delete,
             rclone_status,
+            podcastindex_get,
             sync_find,
             sync_browse,
             download_episode,
@@ -556,6 +590,12 @@ mod tests {
         assert!(parse_target("justaname").is_err());
         assert_eq!(rclone_path("gdrive:", "a.json"), "gdrive:a.json");
         assert_eq!(rclone_path("gdrive:Sync", "a.json"), "gdrive:Sync/a.json");
+    }
+
+    #[test]
+    fn podcastindex_signature() {
+        // sha1("abc") is a fixed, published value; the header is the lowercase hex digest
+        assert_eq!(sha1_smol::Sha1::from("abc").digest().to_string(), "a9993e364706816aba3e25717850c26c9cd0d89d");
     }
 
     #[test]

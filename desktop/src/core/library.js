@@ -24,6 +24,9 @@ export function emptyLibrary() {
       seekForwardSeconds: 90,
       syncFolder: null,
       autoSync: true,
+      queueSortRule: 'PROGRAMMED_FAIR', // Radio U: see QUEUE_SORT_RULES
+      podcastIndexKey: '',
+      podcastIndexSecret: '',
     },
     deviceId: null,
     nowPlayingId: null, // last episode in the player, restored paused on start
@@ -299,7 +302,77 @@ export function rebuildQueue(lib, { now = Date.now(), nowPlayingId = null } = {}
       manualIndex: pin ? pin.manualIndex : null,
     };
   });
+  const rule = lib.settings.queueSortRule || 'PROGRAMMED_FAIR';
+  if (rule !== 'PROGRAMMED_FAIR') applySortRule(lib, rule);
   return lib.queue;
+}
+
+// ---------- Radio U queue order (PodcastRepository.QueueSortRule) ----------
+
+export const QUEUE_SORT_RULES = Object.freeze({
+  PROGRAMMED_FAIR: 'Curated Airwaves: Radio U (Fair Flow + Anti-Binge)',
+  PRIORITY_THEN_DATE_ASC: 'Priority, then Date (Oldest First) [Classic]',
+  PRIORITY_THEN_DATE_DESC: 'Priority, then Date (Newest First)',
+  DATE_DESC: 'Date (Newest First)',
+  DATE_ASC: 'Date (Oldest First)',
+});
+
+/**
+ * Re-sort the programmed part of the queue (applySortRuleToCurrentQueue). Pinned episodes and the
+ * episode on top (orderIndex 0, usually the one playing) keep their places; the rest is sorted.
+ */
+export function applySortRule(lib, rule) {
+  if (!lib.queue.length || rule === 'PROGRAMMED_FAIR') return lib.queue;
+  const ordered = [...lib.queue].sort((a, b) => a.orderIndex - b.orderIndex);
+  const kept = ordered.filter((q) => q.isManual || q.orderIndex === 0);
+  const programmed = ordered.filter((q) => !(q.isManual || q.orderIndex === 0));
+  const pri = (q) => lib.podcasts[q.podcastId]?.priority ?? 3;
+  const pub = (q) => lib.episodes[q.episodeId]?.publishedAt ?? 0;
+  const cmp = {
+    PRIORITY_THEN_DATE_ASC: (a, b) => pri(a) - pri(b) || pub(a) - pub(b),
+    PRIORITY_THEN_DATE_DESC: (a, b) => pri(a) - pri(b) || pub(b) - pub(a),
+    DATE_DESC: (a, b) => pub(b) - pub(a),
+    DATE_ASC: (a, b) => pub(a) - pub(b),
+  }[rule];
+  if (!cmp) return lib.queue;
+  lib.queue = [...kept, ...programmed.sort(cmp)].map((q, i) => ({ ...q, orderIndex: i }));
+  return lib.queue;
+}
+
+/** Pick a queue order and apply it now (QueueViewModel.setSortRule). */
+export function setSortRule(lib, rule, { now = Date.now(), nowPlayingId = null } = {}) {
+  lib.settings.queueSortRule = Object.prototype.hasOwnProperty.call(QUEUE_SORT_RULES, rule) ? rule : 'PROGRAMMED_FAIR';
+  return rebuildQueue(lib, { now, nowPlayingId });
+}
+
+// ---------- Queue screen tabs (EpisodeDao lists) ----------
+
+/** Hot List: unplayed episodes from Priority 1 shows, skipping news older than its window. */
+export function hotList(lib, now = Date.now()) {
+  return Object.values(lib.episodes)
+    .filter((e) => {
+      const p = lib.podcasts[e.podcastId];
+      if (!p || p.unsubscribedAt != null || p.priority !== 1 || e.isCompleted || e.isDismissed) return false;
+      if (p.playOrderStrategy !== 'NEWS') return true;
+      const days = p.newsRetentionDays > 0 ? p.newsRetentionDays : 3;
+      return e.publishedAt >= now - days * 86_400_000;
+    })
+    .sort((a, b) => b.publishedAt - a.publishedAt)
+    .slice(0, 100);
+}
+
+export function unplayedList(lib) {
+  return Object.values(lib.episodes)
+    .filter((e) => !e.isCompleted && !e.isDismissed && lib.podcasts[e.podcastId]?.unsubscribedAt == null)
+    .sort((a, b) => b.publishedAt - a.publishedAt)
+    .slice(0, 200);
+}
+
+export function playedList(lib) {
+  return Object.values(lib.episodes)
+    .filter((e) => e.isCompleted)
+    .sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt))
+    .slice(0, 100);
 }
 
 // ---------- shows ----------

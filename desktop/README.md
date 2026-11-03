@@ -95,6 +95,14 @@ folder at your Google Drive for Desktop folder (for example `G:\My Drive\EagerTo
 rclone for Windows. Installers are unsigned for now, so Windows shows "Windows protected your PC"
 once: **More info → Run anyway**.
 
+## Finding shows: Podcast Index
+
+**Add a show** searches Apple Podcasts out of the box. Add your own free
+[Podcast Index](https://api.podcastindex.org/signup) API key and secret in **Settings → Podcast
+Index** and it searches the Podcasting 2.0 directory instead (falling back to Apple if Podcast
+Index is down), with category buttons for browsing. The key stays in your local library file and
+isn't synced to the phone.
+
 ## Not in this alpha yet
 
 - Transcripts and chapters (the parsers exist in `public/`, not wired in yet)

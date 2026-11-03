@@ -15,7 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Eager to Listen for the desktop** (`desktop/`): a native Linux app built with Tauri, with Windows to follow from the same code.
 - **Shares everything with your phone**: shows, per-show rules, queue and pins, played status, progress and bookmarks, through the same Google Drive sync folder the phone uses. On Linux it reaches Drive through rclone; a plain folder path works too.
 - **Same queue as the phone**: the fair-interleaving engine, all four play orders, back-to-back limits, skip intro/outro and per-show speed, ported rule for rule from the Android code with the Android tests ported alongside.
-- Search the Apple Podcasts directory or paste a feed address, check for new episodes, download episodes for offline play, bookmark a spot, and pick up where you left off after a restart.
+- **Curated Airwaves (Radio U)**: the queue order menu from the phone (Radio U fair flow, Priority then Date oldest or newest first, Date newest or oldest first), the anti-binge limit and news window, and the Hot List / Unplayed / Played tabs.
+- **Podcast Index search** with your own API key (Apple Podcasts when there's no key), category browsing, and the same featured shows as the phone.
+- **Finds your phone's sync folder** by searching your Drive for the sync file, or lets you browse to it. rclone can live in your home folder; no sudo needed.
+- Ships as an AppImage that carries its own audio codecs, so it runs on machines where you can't install packages.
+- Check for new episodes, download episodes for offline play, bookmark a spot, and pick up where you left off after a restart.
 
 ## [0.9.2-alpha] - 2026-11-02
 

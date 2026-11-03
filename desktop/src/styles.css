@@ -90,7 +90,7 @@ h2 { font-size: 17px; margin: 26px 0 10px; color: var(--text-2); font-weight: 60
 .form { display: grid; grid-template-columns: 220px minmax(0, 380px); gap: 10px 16px; align-items: center; max-width: 720px; }
 .form label { color: var(--text-2); }
 .form .hint { grid-column: 2; color: var(--muted); font-size: 12.5px; margin-top: -6px; }
-input[type="text"], input[type="search"], input[type="number"], select, textarea { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; }
+input[type="text"], input[type="search"], input[type="number"], input[type="password"], select, textarea { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; }
 select { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23b3c4ba' stroke-width='1.8'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; }

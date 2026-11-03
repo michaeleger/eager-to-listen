@@ -35,6 +35,8 @@ const state = {
   syncError: false,
   downloads: {}, // episodeId -> {received,total}
   searchResults: null,
+  searchSource: '',
+  queueTab: 'queue', // queue | hot | unplayed | played
   rclone: null,
   finder: null, // { busy, results, error } for "Find my sync folder"
   browser: null, // { target, folders, hasSyncFile, busy, error } for picking a folder by hand
@@ -189,13 +191,60 @@ async function subscribe(rawUrl) {
   }
 }
 
-async function searchDirectory(term) {
+// Same featured shows the phone shows on Discover (PodcastIndexClient.PROMOTED_PODCASTS)
+const FEATURED = [
+  { title: 'Eager to Be Healthy - a Health and Happiness Podcast', author: 'Michael Scott Eger', feedUrl: 'https://api.riverside.com/hosting/drlxDc7x.rss', artworkUrl: 'https://hosting-media.riverside.com/media/podcasts/25c060e8-e598-4782-920d-b96b89a1ffb0/logos/6046bb02-7f6e-4dfa-9ece-f617d9ce3508.jpeg' },
+  { title: 'No Agenda Show', author: 'Adam Curry & John C. Dvorak', feedUrl: 'https://feeds.noagendaassets.com/noagenda.xml', artworkUrl: 'https://noagendaassets.com/enc/1792709117.49_na-1914-art-feed.jpg' },
+  { title: 'Podcasting 2.0', author: 'Adam Curry & Dave Jones', feedUrl: 'https://feeds.podcastindex.org/pc20.xml', artworkUrl: 'https://noagendaassets.com/enc/1684513486.722_pcifeedimage.png' },
+  { title: 'Huberman Lab', author: 'Dr. Andrew Huberman', feedUrl: 'https://feeds.megaphone.fm/hubermanlab', artworkUrl: '' },
+  { title: 'The Peter Attia Drive', author: 'Peter Attia, MD', feedUrl: 'https://peterattiadrive.libsyn.com/rss', artworkUrl: '' },
+];
+const CATEGORIES = ['News', 'Health & Fitness', 'Self-Help', 'Technology', 'Science', 'Society & Culture', 'Business', 'History', 'True Crime', 'Comedy', 'Education'];
+
+const hasPodcastIndex = () => !!(state.lib.settings.podcastIndexKey && state.lib.settings.podcastIndexSecret);
+
+async function podcastIndex(path) {
+  const body = await invoke('podcastindex_get', { path, apiKey: state.lib.settings.podcastIndexKey, apiSecret: state.lib.settings.podcastIndexSecret });
+  return (JSON.parse(body).feeds || [])
+    .filter((f) => f.url)
+    .map((f) => ({ title: f.title || 'Untitled', author: f.author || '', feedUrl: f.url, artworkUrl: f.artwork || f.image || '' }));
+}
+
+async function appleSearch(term) {
+  const url = `https://itunes.apple.com/search?media=podcast&limit=25&term=${encodeURIComponent(term)}`;
+  const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
+  return (JSON.parse(res.body).results || [])
+    .filter((r) => r.feedUrl)
+    .map((r) => ({ title: r.collectionName, author: r.artistName, feedUrl: r.feedUrl, artworkUrl: r.artworkUrl100 }));
+}
+
+async function searchDirectory(term, { category = null } = {}) {
   state.searchResults = 'loading';
   render();
+  let results = [];
+  let source = '';
   try {
-    const url = `https://itunes.apple.com/search?media=podcast&limit=25&term=${encodeURIComponent(term)}`;
-    const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
-    state.searchResults = (JSON.parse(res.body).results || []).filter((r) => r.feedUrl);
+    if (hasPodcastIndex()) {
+      try {
+        results = category
+          ? await podcastIndex(`podcasts/bycategory?cat=${encodeURIComponent(category)}&max=30`)
+          : await podcastIndex(`search/byterm?q=${encodeURIComponent(term)}&max=30`);
+        source = 'Podcast Index';
+      } catch (e) {
+        toast(`${e} Using Apple Podcasts instead.`, 6000);
+      }
+    }
+    if (!results.length && !source) {
+      results = await appleSearch(category || term);
+      source = 'Apple Podcasts';
+    }
+    // Pin the house shows on matching searches, as the phone does
+    const q = (category || term).toLowerCase();
+    const pins = [];
+    if (q.includes('no agenda')) pins.push(FEATURED[1]);
+    if (q.includes('eager') || q === 'health' || q.includes('wellness') || q.includes('self help') || q.includes('self-help')) pins.push(FEATURED[0]);
+    state.searchResults = [...pins, ...results.filter((r) => !pins.some((p) => sameFeed(p.feedUrl, r.feedUrl)))];
+    state.searchSource = source;
   } catch (e) {
     state.searchResults = [];
     toast(`Search failed: ${e}`);
@@ -483,7 +532,7 @@ function go(view, opts = {}) {
   if (opts.showId) state.showId = opts.showId;
   render();
   main.scrollTop = 0;
-  main.focus({ preventScroll: true });
+  if (document.hasFocus()) main.focus({ preventScroll: true });
 }
 const openShow = (id) => go('show', { showId: id });
 
@@ -516,10 +565,29 @@ function episodeRow(ep, { context = 'queue', queueItem = null } = {}) {
 }
 
 function viewQueue() {
-  const items = [...state.lib.queue].sort((a, b) => a.orderIndex - b.orderIndex);
-  const shows = L.subscribed(state.lib).length;
+  const lib = state.lib;
+  const items = [...lib.queue].sort((a, b) => a.orderIndex - b.orderIndex);
+  const shows = L.subscribed(lib).length;
+  const tabs = [
+    ['queue', `Queue (${items.length})`],
+    ['hot', `Hot List (${L.hotList(lib).length})`],
+    ['unplayed', 'Unplayed'],
+    ['played', 'Played'],
+  ];
+  const tabBar = `<div class="row-actions" role="tablist">${tabs
+    .map(([k, label]) => `<button role="tab" aria-selected="${state.queueTab === k}" class="${state.queueTab === k ? 'btn' : 'ghost'} small" data-action="queue-tab" data-tab="${k}">${label}</button>`)
+    .join('')}</div>`;
+
+  if (state.queueTab !== 'queue') {
+    const list = state.queueTab === 'hot' ? L.hotList(lib) : state.queueTab === 'unplayed' ? L.unplayedList(lib) : L.playedList(lib);
+    const queued = new Map(lib.queue.map((q) => [q.episodeId, q]));
+    const empty = { hot: 'No Priority 1 episodes waiting. Set a show to Priority 1 on its page.', unplayed: 'Nothing unplayed.', played: 'Nothing played yet.' }[state.queueTab];
+    return `<h1>Queue</h1>${tabBar}
+      <div class="list">${list.map((e) => episodeRow(e, { queueItem: queued.get(e.id) })).join('') || `<div class="empty">${empty}</div>`}</div>`;
+  }
+
   if (!items.length) {
-    return `<h1>Queue</h1>
+    return `<h1>Queue</h1>${tabBar}
       <div class="empty">${
         shows
           ? '<p>Your queue is empty. Every show is caught up, or its episodes are still loading.</p><button class="btn" data-action="refresh-all">Check for new episodes</button>'
@@ -527,12 +595,20 @@ function viewQueue() {
              <div class="row-actions"><button class="btn" data-view="settings">Set up phone sync</button><button class="ghost" data-view="add">Add a show by hand</button></div>`
       }</div>`;
   }
-  return `<h1>Queue</h1>
-    <p class="sub">${items.length} episodes, programmed fairly across your shows. Pinned episodes stay on top.</p>
-    <div class="row-actions"><button class="ghost small" data-action="clear-queue">Clear pinned & rebuild</button></div>
+  const rule = lib.settings.queueSortRule || 'PROGRAMMED_FAIR';
+  const order = Object.entries(L.QUEUE_SORT_RULES)
+    .map(([k, label]) => `<option value="${k}" ${rule === k ? 'selected' : ''}>${esc(label)}</option>`)
+    .join('');
+  return `<h1>Queue</h1>${tabBar}
+    <div class="row-actions" style="align-items:center">
+      <label for="queueOrder" class="sub" style="margin:0">Order</label>
+      <select id="queueOrder" style="width:auto;max-width:420px" aria-label="Queue order">${order}</select>
+      <button class="ghost small" data-action="clear-queue">Clear pinned & rebuild</button>
+    </div>
+    <p class="sub">${rule === 'PROGRAMMED_FAIR' ? 'Programmed like a radio station: shows take turns, with your back-to-back limit and play orders. Pinned episodes stay on top.' : 'Pinned episodes and the episode on top stay put; the rest follow this order.'}</p>
     <div class="list">${items
       .map((q) => {
-        const ep = state.lib.episodes[q.episodeId];
+        const ep = lib.episodes[q.episodeId];
         return ep ? episodeRow(ep, { queueItem: q }) : '';
       })
       .join('')}</div>`;
@@ -587,7 +663,7 @@ function viewShow() {
       <select id="r-news" name="newsRetentionDays">${opt([1, 2, 3, 5, 7, 14], p.newsRetentionDays, (v) => `${v} day${v === 1 ? '' : 's'}`)}</select>
       <label for="r-max">Most episodes in the queue</label><select id="r-max" name="maxEpisodesInQueue">${opt([1, 2, 3, 5, 10, 20, 50], p.maxEpisodesInQueue)}</select>
       <label for="r-limit">Back-to-back limit</label>
-      <select id="r-limit" name="consecutivePlayLimit">${opt([-1, 1, 2, 3, 5], p.consecutivePlayLimit, (v) => (v === -1 ? 'Use global setting' : v))}</select>
+      <select id="r-limit" name="consecutivePlayLimit">${opt([-1, 1, 2, 3, 4, 5], p.consecutivePlayLimit, (v) => (v === -1 ? 'Use global setting' : v))}</select>
       <label for="r-auto">Add new episodes to queue</label><input id="r-auto" type="checkbox" name="autoAddToQueue" ${p.autoAddToQueue ? 'checked' : ''} />
       <label for="r-intro">Skip intro (seconds)</label><input id="r-intro" type="number" min="0" max="600" name="skipIntroSeconds" value="${p.skipIntroSeconds}" />
       <label for="r-outro">Skip outro (seconds)</label><input id="r-outro" type="number" min="0" max="600" name="skipOutroSeconds" value="${p.skipOutroSeconds}" />
@@ -600,26 +676,33 @@ function viewShow() {
     <div class="list">${eps.map((e) => episodeRow(e, { context: 'show', queueItem: queued.get(e.id) })).join('') || '<div class="empty">No episodes loaded yet.</div>'}</div>`;
 }
 
+function resultRows(list) {
+  return `<div class="list">${list
+    .map((x) => {
+      const have = Object.values(state.lib.podcasts).some((p) => p.unsubscribedAt == null && sameFeed(p.feedUrl, x.feedUrl));
+      return `<div class="item"><img src="${art(x.artworkUrl)}" alt="" loading="lazy" />
+        <div class="meta"><div class="title">${esc(x.title)}</div><div class="line2">${esc(x.author)}</div></div>
+        <div class="actions">${have ? '<span class="tag done">Subscribed</span>' : `<button class="btn small" data-action="subscribe" data-url="${esc(x.feedUrl)}">Subscribe</button>`}</div></div>`;
+    })
+    .join('')}</div>`;
+}
+
 function viewAdd() {
   const r = state.searchResults;
+  const pi = hasPodcastIndex();
   const results =
     r === 'loading'
       ? '<p class="sub">Searching…</p>'
       : Array.isArray(r)
         ? r.length
-          ? `<div class="list">${r
-              .map((x) => {
-                const have = Object.values(state.lib.podcasts).some((p) => p.unsubscribedAt == null && sameFeed(p.feedUrl, x.feedUrl));
-                return `<div class="item"><img src="${art(x.artworkUrl100)}" alt="" loading="lazy" />
-                <div class="meta"><div class="title">${esc(x.collectionName)}</div><div class="line2">${esc(x.artistName)}</div></div>
-                <div class="actions">${have ? '<span class="tag done">Subscribed</span>' : `<button class="btn small" data-action="subscribe" data-url="${esc(x.feedUrl)}">Subscribe</button>`}</div></div>`;
-              })
-              .join('')}</div>`
+          ? `<p class="sub">From ${esc(state.searchSource)}</p>${resultRows(r)}`
           : '<p class="sub">Nothing found.</p>'
-        : '';
-  return `<h1>Add a show</h1><p class="sub">Search the Apple Podcasts directory, or paste a feed address.</p>
+        : `<h2>Featured</h2>${resultRows(FEATURED)}`;
+  return `<h1>Add a show</h1>
+    <p class="sub">${pi ? 'Searching Podcast Index (Podcasting 2.0 directory), with Apple Podcasts as the backup.' : 'Searching Apple Podcasts. Add your Podcast Index key in Settings to search the Podcasting 2.0 directory instead.'}</p>
     <form class="search" id="searchForm"><input type="search" name="q" placeholder="Search shows" aria-label="Search shows" /><button class="btn">Search</button></form>
     <form class="search" id="urlForm"><input type="text" name="url" placeholder="https://… feed address (RSS)" aria-label="Feed address" /><button class="ghost">Subscribe</button></form>
+    ${pi ? `<div class="row-actions">${CATEGORIES.map((c) => `<button class="ghost small" data-action="browse-category" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     ${results}`;
 }
 
@@ -742,13 +825,29 @@ function viewSettings() {
       <span></span><div class="row-actions"><button class="btn" type="submit">Save & sync now</button></div>
     </form>
     <p class="sub">Last sync: ${ago(state.lib.lastSyncAt)}${state.syncMessage ? ` · ${esc(state.syncMessage)}` : ''}</p>
+    <h2>Curated Airwaves (Radio U): Anti-Binge Rules</h2>
+    <p class="sub">Programs your queue like a personal radio station: fair rotation comes before priority, so you aren't stuck bingeing one show. Each show's own rules (priority, play order, limit, skip intro/outro, speed) are on its page under Shows.</p>
+    <form class="form" id="radioForm">
+      <label for="p-order">Queue order</label><select id="p-order" name="queueSortRule">${Object.entries(L.QUEUE_SORT_RULES)
+        .map(([k, label]) => `<option value="${k}" ${(s.queueSortRule || 'PROGRAMMED_FAIR') === k ? 'selected' : ''}>${esc(label)}</option>`)
+        .join('')}</select>
+      <label for="p-limit">Max episodes in a row per show</label><select id="p-limit" name="globalConsecutiveLimit">${opt([1, 2, 3, 4, 5], s.globalConsecutiveLimit)}</select>
+      <div class="hint">How many episodes of one show play in a row before another show gets a turn.</div>
+      <label for="p-news">News: keep episodes for</label><select id="p-news" name="defaultNewsDays">${opt([1, 2, 3, 5, 7], s.defaultNewsDays, (v) => `${v} day${v === 1 ? '' : 's'}`)}</select>
+      <div class="hint">Default for News shows that don't set their own window.</div>
+      <span></span><div><button class="btn" type="submit">Save</button></div>
+    </form>
     <h2>Player</h2>
     <form class="form" id="playerForm">
       <label for="p-back">Rewind</label><select id="p-back" name="seekBackSeconds">${opt([10, 15, 30, 45, 60, 90], s.seekBackSeconds, (v) => `${v} seconds`)}</select>
       <label for="p-fwd">Forward</label><select id="p-fwd" name="seekForwardSeconds">${opt([10, 15, 30, 45, 60, 90], s.seekForwardSeconds, (v) => `${v} seconds`)}</select>
-      <label for="p-limit">Back-to-back limit (all shows)</label><select id="p-limit" name="globalConsecutiveLimit">${opt([1, 2, 3, 5], s.globalConsecutiveLimit)}</select>
-      <div class="hint">How many episodes of one show play in a row before another show gets a turn.</div>
-      <label for="p-news">News: keep episodes for</label><select id="p-news" name="defaultNewsDays">${opt([1, 2, 3, 5, 7], s.defaultNewsDays, (v) => `${v} day${v === 1 ? '' : 's'}`)}</select>
+      <span></span><div><button class="btn" type="submit">Save</button></div>
+    </form>
+    <h2>Podcast Index</h2>
+    <p class="sub">Search the open Podcasting 2.0 directory. Get a free key at <button class="link" data-action="open-url" data-url="https://api.podcastindex.org/signup">api.podcastindex.org</button>; it stays on this computer and isn't synced. Without it, search uses Apple Podcasts.</p>
+    <form class="form" id="piForm">
+      <label for="pi-key">API key</label><input id="pi-key" type="text" name="podcastIndexKey" value="${esc(s.podcastIndexKey || '')}" autocomplete="off" spellcheck="false" />
+      <label for="pi-secret">API secret</label><input id="pi-secret" type="password" name="podcastIndexSecret" value="${esc(s.podcastIndexSecret || '')}" autocomplete="off" />
       <span></span><div><button class="btn" type="submit">Save</button></div>
     </form>
     <h2>About</h2>
@@ -822,7 +921,7 @@ function episodeMenu(id, anchor) {
   const mr = m.getBoundingClientRect();
   m.style.left = `${Math.min(r.right - mr.width, window.innerWidth - mr.width - 8)}px`;
   m.style.top = `${r.bottom + mr.height > window.innerHeight - 8 ? r.top - mr.height : r.bottom}px`;
-  m.querySelector('button')?.focus();
+  if (document.hasFocus()) m.querySelector('button')?.focus();
 }
 
 // ---------------------------------------------------------------- events
@@ -935,6 +1034,13 @@ document.addEventListener('click', (e) => {
     case 'play-bookmark':
       playBookmark(id);
       break;
+    case 'queue-tab':
+      state.queueTab = el.dataset.tab;
+      render();
+      break;
+    case 'browse-category':
+      searchDirectory('', { category: el.dataset.cat });
+      break;
     case 'find-sync-folder':
       findSyncFolder();
       break;
@@ -984,21 +1090,39 @@ document.addEventListener('submit', (e) => {
     persist();
     render();
     if (lib.settings.syncFolder) syncNow();
+  } else if (f.id === 'radioForm') {
+    Object.assign(lib.settings, {
+      globalConsecutiveLimit: Number(data.globalConsecutiveLimit),
+      defaultNewsDays: Number(data.defaultNewsDays),
+    });
+    L.setSortRule(lib, data.queueSortRule, { nowPlayingId: activeId() });
+    persist();
+    render();
+    toast('Saved');
   } else if (f.id === 'playerForm') {
     Object.assign(lib.settings, {
       seekBackSeconds: Number(data.seekBackSeconds),
       seekForwardSeconds: Number(data.seekForwardSeconds),
-      globalConsecutiveLimit: Number(data.globalConsecutiveLimit),
-      defaultNewsDays: Number(data.defaultNewsDays),
     });
-    L.rebuildQueue(lib, { nowPlayingId: activeId() });
     persist();
     render();
     toast('Saved');
+  } else if (f.id === 'piForm') {
+    lib.settings.podcastIndexKey = (data.podcastIndexKey || '').trim();
+    lib.settings.podcastIndexSecret = (data.podcastIndexSecret || '').trim();
+    persist();
+    render();
+    toast(hasPodcastIndex() ? 'Podcast Index key saved' : 'Podcast Index key cleared');
   }
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'queueOrder') {
+    L.setSortRule(state.lib, e.target.value, { nowPlayingId: activeId() });
+    persist();
+    render();
+    return;
+  }
   if (e.target.id === 'r-strategy') {
     const hint = e.target.parentElement.querySelector('#r-strategy + .hint');
     if (hint) hint.textContent = STRATEGY_LABELS[e.target.value]?.[1] || '';
