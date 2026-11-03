@@ -71,6 +71,7 @@ class FeedParser {
 
         // Temp episode vars
         var itemTitle = ""
+        var itemLink = ""
         var itemGuid = ""
         var itemAudioUrl = ""
         var itemDescription = ""
@@ -134,6 +135,7 @@ class FeedParser {
                                 if (isLegitLive) "live" else (rawStatus ?: "ended")
                             } else null
                             itemTitle = ""
+                            itemLink = ""
                             itemGuid = ""
                             itemAudioUrl = ""
                             itemDescription = ""
@@ -151,6 +153,8 @@ class FeedParser {
                         insideItem -> {
                             when {
                                 name == "title" -> itemTitle = parser.nextText()
+                                // The episode's web page; atom:link and friends carry a prefix
+                                name == "link" && prefix.isEmpty() -> itemLink = runCatching { parser.nextText() }.getOrDefault("").trim()
                                 name == "guid" -> itemGuid = parser.nextText()
                                 name == "enclosure" -> {
                                     val url = parser.getAttributeValue(null, "url")
@@ -391,7 +395,8 @@ class FeedParser {
                                         liveStatus = itemLiveStatus,
                                         fundingUrl = itemFundingUrl ?: channelFundingUrl,
                                         valueJson = itemValueJson ?: channelValueJson,
-                                        feedOrder = itemFeedOrder
+                                        feedOrder = itemFeedOrder,
+                                        link = itemLink.ifBlank { null }
                                     )
                                 )
                             }

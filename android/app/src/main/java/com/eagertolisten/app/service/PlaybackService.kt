@@ -1207,9 +1207,13 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Requirement 7: Content creator inspiration bookmarking from Android Auto or app
      */
-    fun saveCurrentInspiration(noteText: String = "Captured from Android Auto") {
+    /**
+     * Save Idea: bookmark the moment you just heard. It starts BOOKMARK_LEAD_IN_SECONDS before the
+     * tap and leaves the note empty for you to fill in; the source (car, player) goes in the tags.
+     */
+    fun saveCurrentInspiration(source: String = "Android Auto") {
         val currentEp = PlaybackStateManager.state.value.currentEpisode ?: return
-        val posSec = player.currentPosition / 1000L
+        val posSec = (player.currentPosition / 1000L - com.eagertolisten.app.data.sync.BookmarkArchive.LEAD_IN_SECONDS).coerceAtLeast(0L)
         serviceScope.launch(Dispatchers.IO) {
             val clip = InspirationClip(
                 episodeId = currentEp.id,
@@ -1218,11 +1222,11 @@ class PlaybackService : MediaLibraryService() {
                 episodeTitle = currentEp.title,
                 timestampSeconds = posSec,
                 audioUrl = currentEp.audioUrl,
-                note = noteText,
-                tags = "Inspiration"
+                note = "",
+                tags = "Inspiration, $source"
             )
             database.inspirationDao().insertInspiration(clip)
-            android.util.Log.i("PlaybackService", "Saved inspiration clip for '${currentEp.title}' at ${posSec}s: $noteText")
+            android.util.Log.i("PlaybackService", "Saved bookmark for '${currentEp.title}' at ${posSec}s from $source")
         }
     }
 
@@ -1877,10 +1881,10 @@ class PlaybackService : MediaLibraryService() {
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CUSTOM_ACTION_SAVE_INSPIRATION -> {
-                    val note = customCommand.customExtras.getString("note")
-                        ?: args.getString("note")
-                        ?: "Captured from Android Auto"
-                    saveCurrentInspiration(note)
+                    val source = customCommand.customExtras.getString("source")
+                        ?: args.getString("source")
+                        ?: "Android Auto"
+                    saveCurrentInspiration(source)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
             }

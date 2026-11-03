@@ -1,5 +1,6 @@
 package com.eagertolisten.app.data.sync
 
+import com.eagertolisten.app.data.model.editedAt
 import com.eagertolisten.app.data.dao.EpisodeSyncProjection
 import com.eagertolisten.app.data.model.Episode
 import com.eagertolisten.app.data.model.InspirationClip
@@ -163,6 +164,18 @@ class InMemorySyncDatabaseOps : SyncDatabaseOps {
 
     override suspend fun saveUnpins(unpins: Map<String, Long>) {
         this.unpins = unpins
+    }
+
+    var inspirationRemovals: Map<String, Long> = emptyMap()
+
+    override suspend fun getInspirationRemovals(): Map<String, Long> = inspirationRemovals
+
+    override suspend fun saveInspirationRemovals(removals: Map<String, Long>) {
+        inspirationRemovals = removals
+    }
+
+    override suspend fun deleteInspirationById(id: String) {
+        inspirations.remove(id)
     }
 
     override suspend fun removeQueueItem(episodeId: String): Int {
@@ -542,5 +555,56 @@ class SyncManagerTest {
         assertEquals(setOf("new"), pruned.keys)
         assertTrue(UnpinRules.removalWins(pinAddedAt = 10L, removedAt = 10L))
         assertFalse(UnpinRules.pinWins(pinUpdatedAt = 10L, removedAt = 10L))
+    }
+
+    // --- Bookmarks: newer note edit wins; deletes and clears stick ---
+
+    private fun bookmark(id: String, note: String = "", created: Long = 1000L, updated: Long = 0L) =
+        InspirationClip(
+            id = id, episodeId = "feedB::e1", podcastId = "feedB", podcastTitle = "B", episodeTitle = "E1",
+            timestampSeconds = 85, audioUrl = "https://x/e1.mp3", note = note, createdAt = created, updatedAt = updated
+        )
+
+    private suspend fun trip(from: InMemorySyncDatabaseOps, to: InMemorySyncDatabaseOps, dev: String, at: Long) {
+        SyncSerializer.mergeState(to, SyncSerializer.parseJson(SyncSerializer.serializeV2(from, dev, at)))
+    }
+
+    @Test
+    fun testOlderBookmarkCopyDoesNotWipeNewerNote() = runBlocking {
+        dbA.inspirations["b1"] = bookmark("b1")
+        trip(dbA, dbB, "A", 1100L)
+        dbB.inspirations["b1"] = bookmark("b1", note = "great line", updated = 2000L)
+        trip(dbA, dbB, "A", 2100L)
+        assertEquals("great line", dbB.inspirations["b1"]!!.note)
+        trip(dbB, dbA, "B", 2200L)
+        assertEquals("great line", dbA.inspirations["b1"]!!.note)
+    }
+
+    @Test
+    fun testClearedBookmarkStaysGoneButLaterEditWins() = runBlocking {
+        dbA.inspirations["b1"] = bookmark("b1")
+        dbA.inspirations["b2"] = bookmark("b2")
+        trip(dbA, dbB, "A", 1100L)
+        dbB.inspirations.remove("b1")
+        dbB.inspirationRemovals = mapOf("b1" to 3000L)
+        trip(dbA, dbB, "A", 3100L)
+        assertNull("not brought back by the other device", dbB.inspirations["b1"])
+        trip(dbB, dbA, "B", 3200L)
+        assertNull("removal reaches the other device", dbA.inspirations["b1"])
+        assertEquals(3000L, dbA.inspirationRemovals["b1"])
+
+        dbA.inspirations["b2"] = bookmark("b2", note = "keep", updated = 5000L)
+        dbB.inspirations.remove("b2")
+        dbB.inspirationRemovals = dbB.inspirationRemovals + ("b2" to 4000L)
+        trip(dbB, dbA, "B", 5100L)
+        assertEquals("keep", dbA.inspirations["b2"]!!.note)
+    }
+
+    @Test
+    fun testOldFilesWithoutBookmarkEditTimes() {
+        val json = org.json.JSONObject("""{"format":2,"inspirations":[{"id":"old","episodeId":"f::1","timestampSeconds":5,"createdAt":42}]}""")
+        val state = SyncSerializer.parseJson(json)
+        assertEquals(42L, state.inspirations.single().editedAt)
+        assertTrue(state.inspirationsRemoved.isEmpty())
     }
 }

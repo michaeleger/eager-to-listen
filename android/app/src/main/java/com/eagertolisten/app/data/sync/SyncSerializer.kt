@@ -1,5 +1,6 @@
 package com.eagertolisten.app.data.sync
 
+import com.eagertolisten.app.data.model.editedAt
 import com.eagertolisten.app.data.EagerDatabase
 import com.eagertolisten.app.data.dao.EpisodeSyncProjection
 import com.eagertolisten.app.data.model.Episode
@@ -67,7 +68,9 @@ data class RemoteSyncState(
     val manualQueue: List<RemoteManualQueueItem>,
     val inspirations: List<InspirationClip>,
     /** Pins removed by hand: episodeId -> removedAt (R2.7). Absent in files from 0.9.2 and older. */
-    val manualQueueRemoved: Map<String, Long> = emptyMap()
+    val manualQueueRemoved: Map<String, Long> = emptyMap(),
+    /** Bookmarks deleted or cleared: id -> removedAt. Absent in files from 0.9.2 and older. */
+    val inspirationsRemoved: Map<String, Long> = emptyMap()
 )
 
 interface SyncDatabaseOps {
@@ -119,12 +122,26 @@ interface SyncDatabaseOps {
     suspend fun saveUnpins(unpins: Map<String, Long>) {}
     /** Remove one queue item (used when another device removed a pin). */
     suspend fun removeQueueItem(episodeId: String): Int = 0
+
+    /** Bookmarks deleted or cleared on this device (id -> removedAt). */
+    suspend fun getInspirationRemovals(): Map<String, Long> = emptyMap()
+    suspend fun saveInspirationRemovals(removals: Map<String, Long>) {}
+    suspend fun deleteInspirationById(id: String) {}
 }
 
 class RoomSyncDatabaseOps(
     private val db: EagerDatabase,
-    private val unpinStore: UnpinStore? = null
+    private val unpinStore: UnpinStore? = null,
+    private val bookmarkStore: BookmarkStore? = null
 ) : SyncDatabaseOps {
+    override suspend fun getInspirationRemovals(): Map<String, Long> = bookmarkStore?.removals() ?: emptyMap()
+
+    override suspend fun saveInspirationRemovals(removals: Map<String, Long>) {
+        bookmarkStore?.saveRemovals(removals)
+    }
+
+    override suspend fun deleteInspirationById(id: String) = db.inspirationDao().deleteInspirationById(id)
+
     override suspend fun getUnpins(): Map<String, Long> = unpinStore?.load() ?: emptyMap()
 
     override suspend fun saveUnpins(unpins: Map<String, Long>) {
@@ -232,8 +249,9 @@ object SyncSerializer {
         db: EagerDatabase,
         deviceId: String,
         writtenAt: Long = System.currentTimeMillis(),
-        unpinStore: UnpinStore? = null
-    ): JSONObject = serializeV2(RoomSyncDatabaseOps(db, unpinStore), deviceId, writtenAt)
+        unpinStore: UnpinStore? = null,
+        bookmarkStore: BookmarkStore? = null
+    ): JSONObject = serializeV2(RoomSyncDatabaseOps(db, unpinStore, bookmarkStore), deviceId, writtenAt)
 
     suspend fun serializeV2(
         ops: SyncDatabaseOps,
@@ -335,9 +353,18 @@ object SyncSerializer {
                     put("quoteText", ins.quoteText)
                     put("tags", ins.tags)
                     put("createdAt", ins.createdAt)
+                    put("updatedAt", ins.editedAt)
                 })
             }
             put("inspirations", iArray)
+            put("inspirationsRemoved", JSONArray().apply {
+                ops.getInspirationRemovals().entries.sortedBy { it.key }.forEach { (id, at) ->
+                    put(JSONObject().apply {
+                        put("id", id)
+                        put("removedAt", at)
+                    })
+                }
+            })
         }
     }
 
@@ -490,9 +517,21 @@ object SyncSerializer {
                         note = obj.optString("note", ""),
                         quoteText = obj.optString("quoteText", ""),
                         tags = obj.optString("tags", ""),
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        // Files from 0.9.2 have no edit time; the creation time stands in
+                        updatedAt = obj.optLong("updatedAt", obj.optLong("createdAt", 0L))
                     )
                 )
+            }
+        }
+
+        val inspirationsRemoved = mutableMapOf<String, Long>()
+        json.optJSONArray("inspirationsRemoved")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id", "")
+                val at = o.optLong("removedAt", 0L)
+                if (id.isNotBlank() && at > 0L && (inspirationsRemoved[id] ?: -1L) < at) inspirationsRemoved[id] = at
             }
         }
 
@@ -504,7 +543,8 @@ object SyncSerializer {
             episodes = episodeList,
             manualQueue = manualQueueList,
             inspirations = inspirationList,
-            manualQueueRemoved = UnpinRules.fromJson(json.optJSONArray("manualQueueRemoved"))
+            manualQueueRemoved = UnpinRules.fromJson(json.optJSONArray("manualQueueRemoved")),
+            inspirationsRemoved = inspirationsRemoved
         )
     }
 
@@ -512,8 +552,9 @@ object SyncSerializer {
         db: EagerDatabase,
         remoteState: RemoteSyncState,
         onNewPodcastSubscribed: (suspend (String) -> Unit)? = null,
-        unpinStore: UnpinStore? = null
-    ): SyncSummary = mergeState(RoomSyncDatabaseOps(db, unpinStore), remoteState, onNewPodcastSubscribed)
+        unpinStore: UnpinStore? = null,
+        bookmarkStore: BookmarkStore? = null
+    ): SyncSummary = mergeState(RoomSyncDatabaseOps(db, unpinStore, bookmarkStore), remoteState, onNewPodcastSubscribed)
 
     suspend fun mergeState(
         ops: SyncDatabaseOps,
@@ -779,10 +820,29 @@ object SyncSerializer {
             }
         }
 
-        // 4. Merge Inspirations
-        if (remoteState.inspirations.isNotEmpty()) {
-            ops.upsertInspirations(remoteState.inspirations)
+        // 4. Bookmarks: removals (deleted or cleared) win when at least as new as the bookmark's last
+        // edit; otherwise the newer edit wins, so an older copy can't wipe a note. Removals are kept so
+        // they pass on to a third device.
+        val removals = ops.getInspirationRemovals().toMutableMap()
+        for ((id, at) in remoteState.inspirationsRemoved) {
+            if ((removals[id] ?: -1L) < at) removals[id] = at
         }
+        val localClips = ops.getAllInspirations().associateBy { it.id }.toMutableMap()
+        for ((id, at) in removals) {
+            val local = localClips[id] ?: continue
+            if (at >= local.editedAt) {
+                ops.deleteInspirationById(id)
+                localClips.remove(id)
+            }
+        }
+        val newer = remoteState.inspirations.filter { clip ->
+            val removedAt = removals[clip.id]
+            if (removedAt != null && removedAt >= clip.editedAt) return@filter false
+            val local = localClips[clip.id]
+            local == null || clip.editedAt > local.editedAt
+        }
+        if (newer.isNotEmpty()) ops.upsertInspirations(newer)
+        if (remoteState.inspirationsRemoved.isNotEmpty()) ops.saveInspirationRemovals(removals)
 
         // Trigger callback for any new podcasts that need feed fetching
         if (onNewPodcastSubscribed != null) {

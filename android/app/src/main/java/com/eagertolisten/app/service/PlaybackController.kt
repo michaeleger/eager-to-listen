@@ -94,10 +94,11 @@ object PlaybackController {
         )
     }
 
-    fun saveInspiration(note: String = "") {
+    /** Save Idea from the app's own player; [source] is recorded in the bookmark's tags. */
+    fun saveInspiration(source: String = "Player") {
         mediaController?.sendCustomCommand(
             androidx.media3.session.SessionCommand(PlaybackService.CUSTOM_ACTION_SAVE_INSPIRATION, android.os.Bundle().apply {
-                putString("note", note)
+                putString("source", source)
             }),
             android.os.Bundle.EMPTY
         )

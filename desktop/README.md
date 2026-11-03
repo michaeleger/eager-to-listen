@@ -103,6 +103,19 @@ Index** and it searches the Podcasting 2.0 directory instead (falling back to Ap
 Index is down), with category buttons for browsing. The key stays in your local library file and
 isn't synced to the phone.
 
+## Creator Inspiration Studio (Bookmarks)
+
+Press ☆ in the player to bookmark the moment you just heard (it starts 15 seconds back). The
+**Bookmarks** page is the Studio: add notes, play from the spot, copy one, delete. **Share all**
+gives you the whole list as Markdown (copy it, or save it to Downloads); afterward you can clear
+what you shared, but only once each one is confirmed in the Drive archive.
+
+Every sync merges your bookmarks into `eagertolisten_bookmarks.jsonl` in the sync folder, one
+JSON object per line: show, episode (title, page link, audio), timestamp, a jump-to-moment link,
+transcript link and excerpt (`timing` is `estimated` for plain-text transcripts like Riverside's),
+note, tags, and `removedAt` once cleared. The file only grows; the app refuses to write a
+smaller one. The phone app writes the same file the same way.
+
 ## Not in this alpha yet
 
 - Transcripts and chapters (the parsers exist in `public/`, not wired in yet)

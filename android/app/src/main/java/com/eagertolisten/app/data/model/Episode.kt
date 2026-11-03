@@ -63,5 +63,8 @@ data class Episode(
     val completedAt: Long? = null,
     val skippedAt: Long? = null,
     val skipCount: Int = 0,
-    val downloadBytes: Long? = null
+    val downloadBytes: Long? = null,
+
+    // The episode's web page (RSS <link>), for bookmark archives and share lists. DB v8.
+    val link: String? = null
 )

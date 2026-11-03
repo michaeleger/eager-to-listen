@@ -11,6 +11,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device used to bring it back at the next sync, because the other device still had it. Removals are now remembered and synced, and the newer action wins: pin it again later and it comes back.
 - The sync file gains a `manualQueueRemoved` list. It's an addition, so 0.9.2 still reads new files without trouble.
 
+### 💡 Creator Inspiration Studio (bookmarks)
+- **Backed up to Drive, permanently.** Every sync adds your bookmarks to `eagertolisten_bookmarks.jsonl` in your Google Drive sync folder: one bookmark per line with the show, episode, episode page link (when the feed has one), audio link, a link that jumps straight to the moment, the timestamp, the transcript link and the transcript text around the moment, and your note. Nothing is ever removed from it; cleared bookmarks are marked, not deleted.
+- **Share all, then clear.** "Share all" sends the whole list as Markdown, grouped by show and episode. Afterward the Studio offers to clear exactly what you shared, but only once every one of them is confirmed in the Drive archive. Bookmarks you add in the meantime aren't touched.
+- **"Export Best Of" is gone.** It only ever listed the shows you'd bookmarked (one line per show), not the bookmarks themselves. Share all replaces it.
+- **Save Idea catches what you just heard:** the bookmark starts 15 seconds before the tap, and the note starts empty instead of "Bookmarked from Player" / "Captured from Android Auto" (where it was captured goes in the tags).
+- **Easier to find:** a Bookmarks chip on the Queue screen opens the Studio (it's still in Settings too).
+- **Edits and deletes sync properly.** A note you edit is no longer overwritten by the other device's older copy, and deleted or cleared bookmarks don't come back.
+- Database version 8 (episode page links, bookmark edit times). Upgrades in place.
+
 ### 🖥 Desktop (Linux first) — new, alpha
 - **Eager to Listen for the desktop** (`desktop/`): a native Linux app built with Tauri, with Windows to follow from the same code.
 - **Shares everything with your phone**: shows, per-show rules, queue and pins, played status, progress and bookmarks, through the same Google Drive sync folder the phone uses. On Linux it reaches Drive through rclone; a plain folder path works too.

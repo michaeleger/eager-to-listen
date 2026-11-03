@@ -3,16 +3,22 @@ package com.eagertolisten.app.parser
 import com.eagertolisten.app.data.model.TranscriptCue
 import org.json.JSONObject
 
+/** Cues plus whether their times are estimated (plain text with no timestamps, like Riverside's). */
+data class ParsedTranscript(val cues: List<TranscriptCue>, val estimated: Boolean)
+
 class TranscriptParser {
 
-    fun parse(rawText: String, type: String? = null, durationSeconds: Long = 0): List<TranscriptCue> {
+    fun parse(rawText: String, type: String? = null, durationSeconds: Long = 0): List<TranscriptCue> =
+        parseWithTiming(rawText, type, durationSeconds).cues
+
+    fun parseWithTiming(rawText: String, type: String? = null, durationSeconds: Long = 0): ParsedTranscript {
         val trimmed = rawText.trim()
-        if (trimmed.isEmpty()) return emptyList()
+        if (trimmed.isEmpty()) return ParsedTranscript(emptyList(), false)
 
         return when {
-            type?.contains("json") == true || trimmed.startsWith("{") -> parseJson(trimmed)
-            trimmed.startsWith("WEBVTT") || type?.contains("vtt") == true -> parseWebVtt(trimmed)
-            trimmed.contains("-->") -> parseSrt(trimmed)
+            type?.contains("json") == true || trimmed.startsWith("{") -> ParsedTranscript(parseJson(trimmed), false)
+            trimmed.startsWith("WEBVTT") || type?.contains("vtt") == true -> ParsedTranscript(parseWebVtt(trimmed), false)
+            trimmed.contains("-->") -> ParsedTranscript(parseSrt(trimmed), false)
             else -> parsePlainText(trimmed, durationSeconds)
         }
     }
@@ -96,12 +102,12 @@ class TranscriptParser {
      * Handles timestamped lines if present, or distributes speaker paragraphs proportionally
      * across the episode duration.
      */
-    private fun parsePlainText(content: String, durationSeconds: Long): List<TranscriptCue> {
+    private fun parsePlainText(content: String, durationSeconds: Long): ParsedTranscript {
         val rawParagraphs = content.replace("\r\n", "\n").split(Regex("\n\\s*\n+"))
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        if (rawParagraphs.isEmpty()) return emptyList()
+        if (rawParagraphs.isEmpty()) return ParsedTranscript(emptyList(), false)
 
         // 1. Check if the text contains embedded timestamps (e.g. "[01:23] Speaker: text" or "01:23:45 Text")
         val timestampRegex = Regex("""^[\[\(]?(\d{1,2}:\d{2}(?::\d{2})?)[\]\)]?[\s\-:]+(.+)""", RegexOption.DOT_MATCHES_ALL)
@@ -119,10 +125,10 @@ class TranscriptParser {
 
         if (timestampedCues.size >= 3) {
             // Adjust end times to match the start of the next cue
-            return timestampedCues.mapIndexed { index, cue ->
+            return ParsedTranscript(timestampedCues.mapIndexed { index, cue ->
                 val nextStart = if (index < timestampedCues.size - 1) timestampedCues[index + 1].startMs else cue.startMs + 5000L
                 cue.copy(endMs = nextStart)
-            }
+            }, false)
         }
 
         // 2. Proportional paragraph timing for Riverside-style speaker turns:
@@ -145,7 +151,7 @@ class TranscriptParser {
             cues.add(TranscriptCue(startMs, endMs, cleanCueText(p)))
         }
 
-        return cues
+        return ParsedTranscript(cues, true)
     }
 
     private fun parseTimestamp(timeStr: String): Long {

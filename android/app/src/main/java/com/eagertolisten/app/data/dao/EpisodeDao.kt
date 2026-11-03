@@ -417,6 +417,7 @@ interface EpisodeDao {
             soundbitesJson = COALESCE(:soundbitesJson, soundbitesJson),
             fundingUrl = COALESCE(:fundingUrl, fundingUrl),
             valueJson = COALESCE(:valueJson, valueJson),
+            link = COALESCE(:link, link),
             isLive = :isLive,
             liveStatus = :liveStatus
         WHERE id = :id
@@ -431,7 +432,8 @@ interface EpisodeDao {
         fundingUrl: String?,
         valueJson: String?,
         isLive: Boolean,
-        liveStatus: String?
+        liveStatus: String?,
+        link: String? = null
     ): Int
 
     @Query("UPDATE episodes SET localFilePath = :localPath, isDownloaded = :isDownloaded, downloadBytes = :bytes WHERE id = :episodeId")

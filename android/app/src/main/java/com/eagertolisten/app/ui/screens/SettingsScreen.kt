@@ -780,7 +780,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Review moments you bookmarked while listening (from Android Auto or player). View timestamps, edit notes for blogs, copy Markdown quotes, and export 'Best-Of' feeds.",
+                        text = "Moments you bookmarked while listening (player or Android Auto). Add notes, share the whole list, then clear it; every sync keeps a permanent copy in your Drive sync folder.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

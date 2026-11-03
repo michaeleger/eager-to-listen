@@ -248,4 +248,23 @@ class MigrationTest {
             assertTrue(c.isNull(1))
         }
     }
+
+    @Test
+    fun migrate7To8AddsEpisodeLinkAndBookmarkEditTime() {
+        var db = helper.createDatabase(TEST_DB, 7).apply {
+            execSQL(
+                "INSERT INTO inspiration_clips (id, episodeId, podcastId, podcastTitle, episodeTitle, timestampSeconds, " +
+                    "audioUrl, note, quoteText, tags, createdAt) VALUES ('b1', 'f::1', 'f', 'Show', 'Ep', 75, " +
+                    "'https://x/1.mp3', 'idea', '', 'Inspiration', 1000)"
+            )
+            close()
+        }
+        db = helper.runMigrationsAndValidate(TEST_DB, 8, true, EagerDatabase.MIGRATION_7_8)
+        db.query("SELECT note, updatedAt FROM inspiration_clips WHERE id = 'b1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("idea", c.getString(0))
+            assertEquals(0L, c.getLong(1))
+        }
+        db.query("SELECT link FROM episodes LIMIT 1").close()
+    }
 }

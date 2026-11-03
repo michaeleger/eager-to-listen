@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +70,12 @@ fun QueueScreen(
     val podcasts by queueViewModel.podcasts.collectAsState()
     val filterMode by queueViewModel.filterMode.collectAsState()
     val activeSortRule by queueViewModel.activeSortRule.collectAsState()
+    // Creator Inspiration Studio: reachable from the Queue screen, not just the bottom of Settings
+    val queueContext = androidx.compose.ui.platform.LocalContext.current
+    val bookmarkCount by androidx.compose.runtime.remember {
+        com.eagertolisten.app.data.EagerDatabase.getInstance(queueContext).inspirationDao().getAllInspirations()
+    }.collectAsState(initial = emptyList<com.eagertolisten.app.data.model.InspirationClip>())
+    var showStudio by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
     val podcastsMap = remember(podcasts) { podcasts.associateBy { it.id } }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -178,7 +186,11 @@ fun QueueScreen(
             )
         )
 
-        // Filter Chips: Pending Queue, Hot List (Priority 1), Unplayed, Played
+        if (showStudio) {
+            InspirationStudioSheet(onDismiss = { showStudio = false })
+        }
+
+        // Filter Chips: Pending Queue, Hot List (Priority 1), Unplayed, Bookmarks, Played
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -217,6 +229,19 @@ fun QueueScreen(
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = BurntOrange,
                     selectedLabelColor = TextPrimary,
+                    containerColor = ForestGreenElevated,
+                    labelColor = TextSecondary
+                )
+            )
+
+            FilterChip(
+                selected = false,
+                onClick = { showStudio = true },
+                label = { Text("Bookmarks (${bookmarkCount.size})") },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Default.Lightbulb, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(16.dp))
+                },
+                colors = FilterChipDefaults.filterChipColors(
                     containerColor = ForestGreenElevated,
                     labelColor = TextSecondary
                 )

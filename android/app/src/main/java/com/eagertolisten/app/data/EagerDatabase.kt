@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         InspirationClip::class,
         PendingRemoteEpisode::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class EagerDatabase : RoomDatabase() {
@@ -92,6 +92,14 @@ abstract class EagerDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE podcasts ADD COLUMN podcastGuid TEXT")
+            }
+        }
+
+        // Bookmark workflow: episode web page links, and bookmark edit times for sync
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE episodes ADD COLUMN link TEXT")
+                db.execSQL("ALTER TABLE inspiration_clips ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
             }
         }
 
@@ -365,7 +373,7 @@ abstract class EagerDatabase : RoomDatabase() {
                     EagerDatabase::class.java,
                     "eager_to_listen.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
                 INSTANCE = instance
                 instance

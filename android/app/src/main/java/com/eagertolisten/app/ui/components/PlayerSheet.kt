@@ -571,7 +571,7 @@ fun PlayerSheet(
                         if (playerSettings.showBookmarkButton) {
                             OutlinedButton(
                                 onClick = {
-                                    PlaybackController.saveInspiration("Bookmarked from Player")
+                                    PlaybackController.saveInspiration("Player")
                                     android.widget.Toast.makeText(context, "Saved inspiration idea at ${formatTime(currentPosition)}!", android.widget.Toast.LENGTH_SHORT).show()
                                 },
                                 shape = RoundedCornerShape(20.dp),

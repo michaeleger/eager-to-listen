@@ -289,7 +289,8 @@ class PodcastRepository(context: Context) {
                             fundingUrl = ep.fundingUrl,
                             valueJson = ep.valueJson,
                             isLive = ep.isLive,
-                            liveStatus = ep.liveStatus
+                            liveStatus = ep.liveStatus,
+                            link = ep.link
                         )
                     }
                     // Purge any live items from the queue to prevent competition with the main playlist
