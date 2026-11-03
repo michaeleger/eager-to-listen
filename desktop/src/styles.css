@@ -132,3 +132,12 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-size:
   .np-progress { grid-column: 1 / -1; }
   .speed { display: none; }
 }
+
+/* Creator Inspiration Studio */
+.bookmark .note { margin: 8px 0 2px; color: var(--text); white-space: pre-wrap; cursor: text; border-radius: 6px; padding: 4px 6px; margin-left: -6px; }
+.bookmark .note:hover { background: var(--bg-2); }
+.bookmark .note.empty-note { color: var(--muted); font-style: italic; }
+.bookmark .note-form { margin-top: 8px; }
+.bookmark .note-form textarea { resize: vertical; }
+.excerpt { margin: 8px 0 0; padding: 6px 12px; border-left: 3px solid var(--green); color: var(--text-2); font-size: 13.5px; max-height: 7.5em; overflow: auto; }
+.card textarea[readonly] { width: 100%; resize: vertical; margin-top: 8px; }

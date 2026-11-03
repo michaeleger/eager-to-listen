@@ -6,6 +6,8 @@ import { normalize, sameFeed } from './core/feedUrl.js';
 import { parseFeed } from './core/feedParser.js';
 import { runSync } from './core/syncRunner.js';
 import { STRATEGY_LABELS } from './core/queueEngine.js';
+import * as B from './core/bookmarks.js';
+import { parseTranscript } from './core/transcript.js';
 
 // Show unexpected errors in the window instead of failing silently
 function showFatal(msg) {
@@ -37,6 +39,9 @@ const state = {
   searchResults: null,
   searchSource: '',
   queueTab: 'queue', // queue | hot | unplayed | played
+  share: null, // { ids, markdown, savedPath } while the share panel is open
+  editingNote: null, // bookmark id whose note is being edited
+  archiveMessage: '',
   rclone: null,
   finder: null, // { busy, results, error } for "Find my sync folder"
   browser: null, // { target, folders, hasSyncFile, busy, error } for picking a folder by hand
@@ -294,6 +299,7 @@ async function syncNow({ quiet = false } = {}) {
     });
     state.syncMessage = `${res.message} · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
     L.rebuildQueue(state.lib, { nowPlayingId: activeId() });
+    await archiveNow();
     persist();
     if (!quiet) toast(res.message);
   } catch (e) {
@@ -303,6 +309,30 @@ async function syncNow({ quiet = false } = {}) {
   } finally {
     state.syncing = false;
     render();
+  }
+}
+
+// Bookmark archive in the Drive sync folder: runs after every sync, never removes anything
+const archiveIo = {
+  list: (target) => invoke('sync_list', { target }),
+  read: (target, name) => invoke('sync_read', { target, name }),
+  write: (target, _name, text) => invoke('archive_write', { target, text }),
+  remove: (target, name) => invoke('sync_delete', { target, name }),
+  transcript: async (url, type, durationSeconds) => {
+    const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
+    if (res.status >= 400) throw new Error(`transcript ${res.status}`);
+    return parseTranscript(res.body, type, durationSeconds || 0);
+  },
+};
+
+async function archiveNow() {
+  try {
+    const r = await B.runArchive(state.lib, archiveIo);
+    state.archiveMessage = `Bookmark archive: ${r.total} saved in Drive`;
+    return true;
+  } catch (e) {
+    state.archiveMessage = `Bookmark archive failed: ${e.message || e}`;
+    return false;
   }
 }
 
@@ -458,24 +488,11 @@ function updateMediaSession(ep, show) {
 function saveIdea() {
   const ep = nowEp();
   if (!ep) return toast('Start an episode first.');
-  const id = crypto.randomUUID();
-  const show = showOf(ep);
-  state.lib.inspirations[id] = {
-    id,
-    episodeId: ep.id,
-    podcastId: ep.podcastId,
-    podcastTitle: show?.title || ep.podcastTitle,
-    episodeTitle: ep.title,
-    timestampSeconds: Math.floor(audio.currentTime),
-    audioUrl: ep.audioUrl,
-    note: '',
-    quoteText: '',
-    tags: '',
-    createdAt: Date.now(),
-  };
+  const c = B.captureBookmark(state.lib, { episode: ep, podcast: showOf(ep), positionSeconds: audio.currentTime, source: 'Desktop' });
   persist();
   syncSoon();
-  toast(`Bookmarked at ${fmtTime(audio.currentTime)}`);
+  if (state.view === 'bookmarks') render();
+  toast(`Bookmarked at ${fmtTime(c.timestampSeconds)} (${B.LEAD_IN_SECONDS}s back)`);
 }
 
 function playBookmark(clipId) {
@@ -707,17 +724,93 @@ function viewAdd() {
 }
 
 function viewBookmarks() {
-  const clips = Object.values(state.lib.inspirations).sort((a, b) => b.createdAt - a.createdAt);
-  if (!clips.length) return `<h1>Bookmarks</h1><div class="empty"><p>No bookmarks yet. Press ☆ in the player to save the spot you're at. Bookmarks from your phone show up here after a sync.</p></div>`;
-  return `<h1>Bookmarks</h1><p class="sub">Saved spots, from this PC and your phone.</p>
-    <div class="list">${clips
-      .map(
-        (c) => `<div class="item"><img src="${art(state.lib.podcasts[c.podcastId]?.artworkUrl)}" alt="" loading="lazy" />
-        <div class="meta"><div class="title">${esc(c.episodeTitle)}</div>
-          <div class="line2">${esc(c.podcastTitle)} · at ${fmtTime(c.timestampSeconds)}${c.note ? ` · ${esc(c.note)}` : ''}</div></div>
-        <div class="actions"><button class="btn small" data-action="play-bookmark" data-id="${esc(c.id)}">Play from here</button></div></div>`,
-      )
-      .join('')}</div>`;
+  const lib = state.lib;
+  const clips = B.sortedBookmarks(lib);
+  const head = `<h1>Creator Inspiration Studio</h1>
+    <p class="sub">Moments you saved while listening, from this PC and your phone. Every sync backs them up to <code>${esc(B.ARCHIVE_FILE)}</code> in your Drive sync folder, and that archive is never cleared.${state.archiveMessage ? ` <br />${esc(state.archiveMessage)}` : ''}</p>`;
+  if (state.share) return head + viewSharePanel();
+  if (!clips.length) {
+    return `${head}<div class="empty"><p>No bookmarks in the app right now. Press ☆ in the player (or Save Idea on the phone or in the car) to mark a moment; it starts ${B.LEAD_IN_SECONDS} seconds back so it catches what you just heard.</p></div>`;
+  }
+  const notArchived = clips.filter((c) => !B.isArchived(lib, c)).length;
+  return `${head}
+    <div class="row-actions">
+      <button class="btn" data-action="share-bookmarks">Share all ${clips.length}</button>
+      <button class="ghost small" data-action="sync-now">${notArchived ? `Back up ${notArchived} to Drive now` : 'All backed up ✓'}</button>
+    </div>
+    <div class="list">${clips.map(bookmarkCard).join('')}</div>`;
+}
+
+function bookmarkCard(c) {
+  const lib = state.lib;
+  const ep = lib.episodes[c.episodeId];
+  const meta = lib.bookmarkMeta?.[c.id];
+  const editing = state.editingNote === c.id;
+  return `<div class="item bookmark" style="grid-template-columns:52px 1fr;align-items:start">
+    <img src="${art(lib.podcasts[c.podcastId]?.artworkUrl)}" alt="" loading="lazy" />
+    <div class="meta">
+      <div class="title" title="${esc(c.episodeTitle)}">${esc(c.episodeTitle)}</div>
+      <div class="line2"><span class="tag pin">${B.formatTs(c.timestampSeconds)}</span>${B.isArchived(lib, c) ? '<span class="tag done">In Drive archive</span>' : '<span class="tag">Not backed up yet</span>'}${esc(c.podcastTitle)} · ${new Date(c.createdAt).toLocaleDateString()}</div>
+      ${
+        editing
+          ? `<form class="note-form" data-id="${esc(c.id)}"><textarea name="note" rows="3" aria-label="Note">${esc(c.note)}</textarea>
+             <div class="row-actions"><button class="btn small" type="submit">Save note</button><button class="ghost small" type="button" data-action="cancel-note">Cancel</button></div></form>`
+          : `<p class="note ${c.note ? '' : 'empty-note'}" data-action="edit-note" data-id="${esc(c.id)}" title="Click to edit">${c.note ? esc(c.note) : 'Add a note or blog idea…'}</p>`
+      }
+      ${meta?.transcriptExcerpt ? `<blockquote class="excerpt">${esc(meta.transcriptExcerpt)}${meta.timing === 'estimated' ? '<span class="sub"> (transcript position estimated)</span>' : ''}</blockquote>` : ''}
+      <div class="row-actions" style="margin:6px 0 0">
+        <button class="btn small" data-action="play-bookmark" data-id="${esc(c.id)}">▶ Play from here</button>
+        ${editing ? '' : `<button class="ghost small" data-action="edit-note" data-id="${esc(c.id)}">Edit note</button>`}
+        <button class="ghost small" data-action="copy-bookmark" data-id="${esc(c.id)}">Copy</button>
+        ${ep?.link ? `<button class="ghost small" data-action="open-url" data-url="${esc(ep.link)}">Episode page</button>` : ''}
+        <button class="ghost small danger" data-action="delete-bookmark" data-id="${esc(c.id)}">Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function viewSharePanel() {
+  const lib = state.lib;
+  const sh = state.share;
+  const clips = sh.ids.map((id) => lib.inspirations[id]).filter(Boolean);
+  const unsafe = clips.filter((c) => !B.isArchived(lib, c)).length;
+  const noFolder = !lib.settings.syncFolder;
+  return `<div class="card" style="max-width:980px">
+      <p><strong>Share ${sh.ids.length} bookmarks.</strong> Copy the list or save it as a Markdown file, use it, then clear these from the app. They stay in the Drive archive.</p>
+      <div class="row-actions">
+        <button class="btn small" data-action="copy-share">Copy list</button>
+        <button class="ghost small" data-action="save-share">Save as file in Downloads</button>
+        <button class="ghost small" data-action="close-share">Close</button>
+      </div>
+      ${sh.savedPath ? `<p class="sub">Saved to <code>${esc(sh.savedPath)}</code></p>` : ''}
+      <textarea readonly rows="16" style="font-family:ui-monospace,monospace;font-size:12.5px" aria-label="Share list">${esc(sh.markdown)}</textarea>
+      <h2 style="margin-top:16px">Done with these?</h2>
+      ${
+        noFolder
+          ? '<p>Set your Drive sync folder in Settings first; bookmarks are only cleared once they\'re safely in the archive.</p>'
+          : unsafe
+            ? `<p>${unsafe} of these ${unsafe === 1 ? "isn't" : "aren't"} in the Drive archive yet.</p><div class="row-actions"><button class="btn small" data-action="sync-now">Back up to Drive now</button></div>`
+            : `<p>All ${clips.length} are in the Drive archive. Clearing removes them from the app on this PC and, after the next sync, your phone. Bookmarks you add from now on aren't touched.</p>
+               <div class="row-actions"><button class="btn small" data-action="clear-shared">Clear these ${clips.length} from the app</button></div>`
+      }
+    </div>`;
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
 }
 
 // "remote:" / "remote:A/B" (rclone) or "/home/me/A" (local) path helpers for the folder browser
@@ -1034,6 +1127,67 @@ document.addEventListener('click', (e) => {
     case 'play-bookmark':
       playBookmark(id);
       break;
+    case 'share-bookmarks': {
+      const clips = B.sortedBookmarks(lib);
+      state.share = { ids: clips.map((c) => c.id), markdown: B.shareMarkdown(lib, clips), savedPath: null };
+      render();
+      main.scrollTop = 0;
+      break;
+    }
+    case 'copy-share':
+      copyText(state.share.markdown).then((ok) => toast(ok ? 'List copied' : "Couldn't copy; use Save as file instead"));
+      break;
+    case 'save-share': {
+      const name = `podcast-bookmarks-${new Date().toISOString().slice(0, 10)}.md`;
+      invoke('save_text_file', { fileName: name, text: state.share.markdown })
+        .then((path) => {
+          state.share.savedPath = path;
+          render();
+          toast('Saved');
+        })
+        .catch((err) => toast(`Couldn't save: ${err}`, 6000));
+      break;
+    }
+    case 'close-share':
+      state.share = null;
+      render();
+      break;
+    case 'clear-shared': {
+      const ids = state.share.ids.filter((x) => lib.inspirations[x] && B.isArchived(lib, lib.inspirations[x]));
+      if (confirm(`Clear ${ids.length} bookmarks from the app? They stay in the Drive archive.`)) {
+        B.removeBookmarks(lib, ids);
+        state.share = null;
+        persist();
+        syncSoon(1000);
+        render();
+        toast(`Cleared ${ids.length}. They're still in the Drive archive.`);
+      }
+      break;
+    }
+    case 'edit-note':
+      state.editingNote = id;
+      render();
+      document.querySelector('.note-form textarea')?.focus();
+      break;
+    case 'cancel-note':
+      state.editingNote = null;
+      render();
+      break;
+    case 'copy-bookmark': {
+      const c = lib.inspirations[id];
+      if (c) copyText(B.shareMarkdown(lib, [c])).then((ok) => toast(ok ? 'Copied' : "Couldn't copy"));
+      break;
+    }
+    case 'delete-bookmark': {
+      const c = lib.inspirations[id];
+      if (c && confirm(`Delete the bookmark at ${B.formatTs(c.timestampSeconds)} in "${c.episodeTitle}"?${B.isArchived(lib, c) ? ' It stays in the Drive archive.' : ' It will still be saved to the Drive archive on the next sync.'}`)) {
+        B.removeBookmarks(lib, [id]);
+        persist();
+        syncSoon();
+        render();
+      }
+      break;
+    }
     case 'queue-tab':
       state.queueTab = el.dataset.tab;
       render();
@@ -1065,6 +1219,15 @@ document.addEventListener('submit', (e) => {
   const f = e.target;
   const data = Object.fromEntries(new FormData(f));
   const lib = state.lib;
+  if (f.classList.contains('note-form')) {
+    B.updateBookmark(lib, f.dataset.id, { note: (data.note || '').trim() });
+    state.editingNote = null;
+    persist();
+    syncSoon();
+    render();
+    toast('Note saved');
+    return;
+  }
   if (f.id === 'searchForm' && data.q?.trim()) searchDirectory(data.q.trim());
   else if (f.id === 'urlForm' && data.url?.trim()) subscribe(data.url.trim());
   else if (f.id === 'rulesForm') {

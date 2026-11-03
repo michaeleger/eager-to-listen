@@ -75,6 +75,7 @@ test('transcripts: exact excerpt from VTT, estimated from Riverside-style plain 
   const ex2 = excerptAt(p, 500);
   assert.equal(ex2.timing, 'estimated');
   assert.ok(ex2.text.includes('Paragraph 5'));
+  assert.match(ex2.text, /Speaker B: Paragraph 5/, 'speaker name shown as a label');
 });
 
 function fakeFolder(files = {}) {

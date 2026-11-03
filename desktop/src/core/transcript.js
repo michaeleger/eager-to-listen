@@ -84,9 +84,19 @@ function parsePlain(content, durationSeconds) {
     const startMs = Math.trunc((acc / total) * totalMs);
     acc += words[i];
     const endMs = Math.max(Math.trunc((acc / total) * totalMs), startMs + 1000);
-    return { startMs, endMs, text: clean(p) };
+    return { startMs, endMs, text: speakerLabel(clean(p)) };
   });
   return { cues, estimated: true };
+}
+
+/** Riverside paragraphs start with the speaker's name on its own line: show it as "Name: words". */
+export function speakerLabel(paragraph) {
+  const nl = paragraph.indexOf('\n');
+  if (nl <= 0) return paragraph;
+  const first = paragraph.slice(0, nl).trim();
+  const rest = paragraph.slice(nl + 1).trim();
+  if (rest && first.length <= 40 && !/[.!?,;]$/.test(first) && first.split(/\s+/).length <= 5) return `${first}: ${rest.replace(/\s*\n\s*/g, ' ')}`;
+  return paragraph.replace(/\s*\n\s*/g, ' ');
 }
 
 /** @returns {{cues: {startMs,endMs,text}[], estimated: boolean}} */

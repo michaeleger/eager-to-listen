@@ -23,6 +23,8 @@ const LIBRARY_FILE: &str = "library.json";
 const SYNC_MAIN: &str = "eagertolisten_sync.json";
 const SYNC_TMP: &str = "eagertolisten_sync.tmp.json";
 const SYNC_BAK: &str = "eagertolisten_sync.bak.json";
+const ARCHIVE_MAIN: &str = "eagertolisten_bookmarks.jsonl";
+const ARCHIVE_TMP: &str = "eagertolisten_bookmarks.tmp.jsonl";
 
 type CmdResult<T> = Result<T, String>;
 
@@ -320,8 +322,10 @@ async fn sync_read(target: String, name: String) -> CmdResult<String> {
 
 #[tauri::command]
 async fn sync_delete(target: String, name: String) -> CmdResult<()> {
-    if name == SYNC_MAIN || !name.starts_with("eagertolisten_sync") || name.contains('/') || name.contains('\\') {
-        return Err("Only duplicate sync copies can be deleted.".into());
+    let is_sync_copy = name.starts_with("eagertolisten_sync") && name != SYNC_MAIN;
+    let is_archive_copy = name.starts_with("eagertolisten_bookmarks") && name.ends_with(".jsonl") && name != ARCHIVE_MAIN;
+    if !(is_sync_copy || is_archive_copy) || name.contains('/') || name.contains('\\') {
+        return Err("Only duplicate sync or archive copies can be deleted.".into());
     }
     target_delete(&parse_target(&target)?, &name).await
 }
@@ -349,6 +353,66 @@ async fn sync_write(target: String, json: String) -> CmdResult<()> {
     target_write(&t, SYNC_MAIN, json.as_bytes()).await?;
     let _ = target_delete(&t, SYNC_TMP).await;
     Ok(())
+}
+
+/// Write the bookmark archive (JSON Lines) safely: temp file, read it back and check every line,
+/// then the real file. The archive only ever grows, so refuse a write that would shrink it a lot.
+#[tauri::command]
+async fn archive_write(target: String, text: String) -> CmdResult<()> {
+    let t = parse_target(&target)?;
+    let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    if serde_json::from_str::<serde_json::Value>(first).is_err() {
+        return Err("Refusing to write an archive whose first line isn't JSON.".into());
+    }
+    if target_list(&t).await?.iter().any(|n| n == ARCHIVE_MAIN) {
+        if let Ok(current) = target_read(&t, ARCHIVE_MAIN).await {
+            let (old, new) = (archive_entries(&current), archive_entries(&text));
+            if new < old {
+                return Err(format!("Refusing to shrink the bookmark archive ({old} bookmarks to {new})."));
+            }
+        }
+    }
+    target_write(&t, ARCHIVE_TMP, text.as_bytes()).await?;
+    let back = target_read(&t, ARCHIVE_TMP).await?;
+    if back != text {
+        return Err("The bookmark archive didn't read back cleanly.".into());
+    }
+    target_write(&t, ARCHIVE_MAIN, text.as_bytes()).await?;
+    let _ = target_delete(&t, ARCHIVE_TMP).await;
+    Ok(())
+}
+
+/// Distinct bookmarks in an archive (by id), plus any lines that aren't JSON (those are kept too).
+fn archive_entries(text: &str) -> usize {
+    let mut ids = std::collections::HashSet::new();
+    let mut other = 0;
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        match serde_json::from_str::<serde_json::Value>(line).ok().and_then(|v| v.get("id").and_then(|i| i.as_str()).map(String::from)) {
+            Some(id) => {
+                ids.insert(id);
+            }
+            None => other += 1,
+        }
+    }
+    ids.len() + other
+}
+
+/// Save text (the share list) to a file in Downloads; returns the path.
+#[tauri::command]
+async fn save_text_file(app: AppHandle, file_name: String, text: String) -> CmdResult<String> {
+    let dir = app.path().download_dir().or_else(|_| app.path().home_dir()).map_err(err)?;
+    tokio::fs::create_dir_all(&dir).await.map_err(err)?;
+    let name = safe_file_name(&file_name);
+    let mut path = dir.join(&name);
+    let mut n = 1;
+    while path.exists() {
+        let stem = Path::new(&name).file_stem().and_then(|s| s.to_str()).unwrap_or("bookmarks");
+        let ext = Path::new(&name).extension().and_then(|s| s.to_str()).unwrap_or("md");
+        path = dir.join(format!("{stem}-{n}.{ext}"));
+        n += 1;
+    }
+    write_atomic(&path, text.as_bytes()).await?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[derive(Serialize)]
@@ -567,6 +631,8 @@ pub fn run() {
             sync_delete,
             rclone_status,
             podcastindex_get,
+            archive_write,
+            save_text_file,
             sync_find,
             sync_browse,
             download_episode,
@@ -596,6 +662,12 @@ mod tests {
     fn podcastindex_signature() {
         // sha1("abc") is a fixed, published value; the header is the lowercase hex digest
         assert_eq!(sha1_smol::Sha1::from("abc").digest().to_string(), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    }
+
+    #[test]
+    fn archive_counting() {
+        let a = "{\"id\":\"a\"}\n{\"id\":\"a\"}\n{\"id\":\"b\"}\nnot json\n";
+        assert_eq!(archive_entries(a), 3);
     }
 
     #[test]
