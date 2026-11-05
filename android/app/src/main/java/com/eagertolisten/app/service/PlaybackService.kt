@@ -86,6 +86,8 @@ class PlaybackService : MediaLibraryService() {
     private var eofReconnectCount = 0
     private var currentEofEpisodeId: String? = null
     private var hasPrefetchedUpcomingNews = false
+    private val sessionSkippedEpisodeIds: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+    private val localFallbackAttemptedIds: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 
     // Episode just started at an explicit position (e.g. a bookmark). The media-item transition
     // handler must not replace that position with the saved resume point or skip-intro.
@@ -218,12 +220,64 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun play() {
-                if (rawPlayer.currentMediaItem == null) {
+                errorRetryJob?.cancel()
+                networkRetryCount = 0
+                val currentMediaItem = rawPlayer.currentMediaItem
+                if (currentMediaItem == null) {
                     loadAndPlayTopQueueItem()
                 } else {
-                    // After an error (e.g. retries exhausted) the player is idle; re-prepare so play resumes
-                    if (rawPlayer.playbackState == Player.STATE_IDLE) {
-                        rawPlayer.prepare()
+                    val mediaId = currentMediaItem.mediaId
+                    val uri = currentMediaItem.localConfiguration?.uri
+                    val missingLocalFile = uri?.scheme == "file" && uri.path?.let { !File(it).exists() || File(it).length() <= 1024L } == true
+                    val stateEp = PlaybackStateManager.state.value.currentEpisode
+                    val isEndedOrIdle = rawPlayer.playbackState == Player.STATE_IDLE || rawPlayer.playbackState == Player.STATE_ENDED
+                    if (stateEp?.id == mediaId && (stateEp.isCompleted || stateEp.isDismissed)) {
+                        loadAndPlayTopQueueItem()
+                        return
+                    }
+                    if (!rawPlayer.isPlaying || missingLocalFile || isEndedOrIdle) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            val dbEp = database.episodeDao().getEpisodeByIdSync(mediaId)
+                            withContext(Dispatchers.Main) {
+                                checkMainThread()
+                                if (dbEp == null || dbEp.isCompleted || dbEp.isDismissed) {
+                                    android.util.Log.i("PlaybackService", "play(): loaded episode '$mediaId' is already completed/dismissed. Advancing to top queue item.")
+                                    loadAndPlayTopQueueItem()
+                                } else if (missingLocalFile) {
+                                    android.util.Log.w("PlaybackService", "play(): local file missing for '${dbEp.title}'; switching to streaming at saved position.")
+                                    try {
+                                        com.eagertolisten.app.data.download.PodcastDownloadManager(applicationContext).deleteDownloadedEpisode(dbEp.id)
+                                    } catch (_: Exception) {}
+                                    val resumeMs = maxOf(
+                                        rawPlayer.currentPosition.coerceAtLeast(0L),
+                                        PlaybackStateManager.state.value.currentPositionMs,
+                                        dbEp.playbackPositionSeconds * 1000L
+                                    )
+                                    com.eagertolisten.app.diagnostics.CrashReporter.recordPlaybackError(
+                                        context = applicationContext,
+                                        eventType = "Missing / Truncated Local Download on Play",
+                                        episodeTitle = dbEp.title,
+                                        episodeId = dbEp.id,
+                                        podcastTitle = dbEp.podcastTitle,
+                                        podcastId = dbEp.podcastId,
+                                        mediaUri = uri?.toString(),
+                                        localFileStatus = uri?.path?.let { p -> val f = File(p); "exists=${f.exists()}, size=${if (f.exists()) f.length() else 0L}B" },
+                                        errorCode = null,
+                                        errorCodeName = "LOCAL_FILE_MISSING_OR_TRUNCATED",
+                                        positionSec = resumeMs / 1000L,
+                                        durationSec = dbEp.durationSeconds,
+                                        recoveryAction = "Deleted missing/bad local file and switched to streaming at ${resumeMs / 1000L}s"
+                                    )
+                                    loadAndPlayEpisode(dbEp.id, dbEp.podcastId, startPositionOverrideMs = resumeMs)
+                                } else {
+                                    if (rawPlayer.playbackState == Player.STATE_IDLE) {
+                                        rawPlayer.prepare()
+                                    }
+                                    rawPlayer.play()
+                                }
+                            }
+                        }
+                        return
                     }
                     super.play()
                 }
@@ -337,6 +391,16 @@ class PlaybackService : MediaLibraryService() {
                         // apply this episode's settings, queue or resume point to some other item.
                         if (rawPlayer.currentMediaItem?.mediaId != episodeId) return@withContext
 
+                        val explicitStart = explicitStartEpisodeId == episodeId
+                        if (explicitStart) explicitStartEpisodeId = null
+
+                        // Never auto-advance into a leftover episode that is already completed or dismissed
+                        if (!explicitStart && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && (episode.isCompleted || episode.isDismissed)) {
+                            android.util.Log.i("PlaybackService", "onMediaItemTransition: auto-transitioned into completed/dismissed '${episode.title}', advancing to next playable episode.")
+                            playNextQueueEpisode(excludeId = episode.id)
+                            return@withContext
+                        }
+
                         applyShowSettings(episode, podcast)
 
                         // Refill "up next" from the queue whenever the playing episode changes
@@ -349,20 +413,9 @@ class PlaybackService : MediaLibraryService() {
                         val exclude = if (movedOn) setOfNotNull(currentId?.takeIf { it != episodeId }) else emptySet()
                         syncUpcomingItemsWithQueue(queueSnapshot, excludeIds = exclude)
 
-                        // Started at an explicit position (bookmark): keep it, even under 2 seconds.
-                        val explicitStart = explicitStartEpisodeId == episodeId
-                        if (explicitStart) explicitStartEpisodeId = null
-
                         // If freshly transitioning from beginning, apply saved position or skip intro
                         if (!explicitStart && player.currentPosition < 2000L) {
-                            val skipIntro = if (episode.isLive) 0 else (podcast?.skipIntroSeconds ?: 0)
-                            val startPosMs = if (episode.playbackPositionSeconds > 0) {
-                                episode.playbackPositionSeconds * 1000L
-                            } else if (skipIntro > 0) {
-                                skipIntro * 1000L
-                            } else {
-                                0L
-                            }
+                            val startPosMs = computeSafeStartPositionMs(episode, podcast)
                             if (startPosMs > 0 && player.currentPosition < startPosMs) {
                                 player.seekTo(player.currentMediaItemIndex, startPosMs)
                             }
@@ -452,85 +505,205 @@ class PlaybackService : MediaLibraryService() {
                         networkRetryCount = 0
                     }
 
+                    val resumePosMs = maxOf(
+                        rawPlayer.currentPosition.coerceAtLeast(0L),
+                        PlaybackStateManager.state.value.currentPositionMs,
+                        currentEp.playbackPositionSeconds * 1000L
+                    )
+                    persistCurrentProgress()
+
+                    // 1. If a local downloaded file failed (for ANY reason: missing, truncated, corrupt, range error),
+                    // immediately delete the bad local file and switch to streaming at the saved timestamp
+                    // (or advance to the next episode if this episode was already completed).
+                    val failedLocalFile = rawPlayer.currentMediaItem?.localConfiguration?.uri?.scheme == "file"
+                    if (failedLocalFile && localFallbackAttemptedIds.add(currentEp.id)) {
+                        errorRetryJob?.cancel()
+                        serviceScope.launch(Dispatchers.IO) {
+                            val dbEp = database.episodeDao().getEpisodeByIdSync(currentEp.id)
+                            try {
+                                com.eagertolisten.app.data.download.PodcastDownloadManager(applicationContext).deleteDownloadedEpisode(currentEp.id)
+                                com.eagertolisten.app.data.download.PodcastDownloadManager.enqueueAutoDownload(applicationContext)
+                            } catch (_: Exception) {}
+
+                            withContext(Dispatchers.Main) {
+                                checkMainThread()
+                                if (dbEp == null || dbEp.isCompleted || dbEp.isDismissed) {
+                                    android.util.Log.i("PlaybackService", "Local file failed on already-completed episode '${currentEp.title}'; advancing to next queue episode.")
+                                    com.eagertolisten.app.diagnostics.CrashReporter.recordPlaybackError(
+                                        context = applicationContext,
+                                        eventType = "Local File Error on Completed Episode",
+                                        episodeTitle = currentEp.title,
+                                        episodeId = currentEp.id,
+                                        podcastTitle = currentEp.podcastTitle,
+                                        podcastId = currentEp.podcastId,
+                                        mediaUri = currentEp.localFilePath ?: currentEp.audioUrl,
+                                        localFileStatus = "Deleted leftover local file on completed episode",
+                                        errorCode = error.errorCode,
+                                        errorCodeName = error.errorCodeName,
+                                        positionSec = resumePosMs / 1000L,
+                                        durationSec = currentEp.durationSeconds,
+                                        recoveryAction = "Episode already completed; advanced to next playable queue episode",
+                                        throwable = error
+                                    )
+                                    playNextQueueEpisode(excludeId = currentEp.id)
+                                } else {
+                                    android.util.Log.w("PlaybackService", "Local file failed (${error.errorCodeName}); switching to streaming at ${resumePosMs / 1000}s for '${currentEp.title}'")
+                                    com.eagertolisten.app.diagnostics.CrashReporter.recordPlaybackError(
+                                        context = applicationContext,
+                                        eventType = "Local Download Source Error -> Streaming Fallback",
+                                        episodeTitle = currentEp.title,
+                                        episodeId = currentEp.id,
+                                        podcastTitle = currentEp.podcastTitle,
+                                        podcastId = currentEp.podcastId,
+                                        mediaUri = currentEp.localFilePath ?: currentEp.audioUrl,
+                                        localFileStatus = "Deleted failed local file (${currentEp.localFilePath ?: "none"})",
+                                        errorCode = error.errorCode,
+                                        errorCodeName = error.errorCodeName,
+                                        positionSec = resumePosMs / 1000L,
+                                        durationSec = currentEp.durationSeconds,
+                                        recoveryAction = "Deleted bad local download and switched to streaming at ${resumePosMs / 1000L}s",
+                                        throwable = error
+                                    )
+                                    loadAndPlayEpisode(currentEp.id, currentEp.podcastId, startPositionOverrideMs = resumePosMs)
+                                }
+                            }
+                        }
+                        return
+                    }
+
+                    // 2. Classify remote / audio error and either retry briefly or skip for the current session
                     val httpStatus = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                     when (val resolution = coordinator.classifyError(error.errorCode, networkRetryCount, httpStatus)) {
                         ErrorResolution.RETRY_NETWORK,
                         ErrorResolution.RETRY_AUDIO_DEVICE -> {
                             networkRetryCount++
                             val backoffMs = coordinator.retryDelayMs(resolution, networkRetryCount)
-                            android.util.Log.w("PlaybackService", "Recoverable error (${error.errorCodeName}, $resolution). Retry $networkRetryCount after ${backoffMs}ms")
-                            persistCurrentProgress()
+                            android.util.Log.w("PlaybackService", "Recoverable error (${error.errorCodeName}, $resolution). Retry $networkRetryCount after ${backoffMs}ms at ${resumePosMs / 1000}s")
+                            com.eagertolisten.app.diagnostics.CrashReporter.recordPlaybackError(
+                                context = applicationContext,
+                                eventType = "Source / Playback Error ($resolution)",
+                                episodeTitle = currentEp.title,
+                                episodeId = currentEp.id,
+                                podcastTitle = currentEp.podcastTitle,
+                                podcastId = currentEp.podcastId,
+                                mediaUri = rawPlayer.currentMediaItem?.localConfiguration?.uri?.toString() ?: currentEp.audioUrl,
+                                localFileStatus = currentEp.localFilePath?.let { p -> val f = File(p); "exists=${f.exists()}, size=${if (f.exists()) f.length() else 0L}B" },
+                                errorCode = error.errorCode,
+                                errorCodeName = error.errorCodeName,
+                                httpStatus = httpStatus,
+                                positionSec = resumePosMs / 1000L,
+                                durationSec = currentEp.durationSeconds,
+                                recoveryAction = "Retry $networkRetryCount/${PlaybackCoordinator.MAX_NETWORK_RETRIES} after ${backoffMs}ms at ${resumePosMs / 1000L}s",
+                                throwable = error
+                            )
                             errorRetryJob?.cancel()
                             errorRetryJob = serviceScope.launch(Dispatchers.Main) {
                                 PlaybackStateManager.setBuffering(true)
+                                val dbEp = withContext(Dispatchers.IO) {
+                                    database.episodeDao().getEpisodeByIdSync(currentEp.id)
+                                }
+                                if (dbEp == null || dbEp.isCompleted || dbEp.isDismissed) {
+                                    android.util.Log.i("PlaybackService", "Errored episode '${currentEp.title}' is already completed/dismissed; advancing to next queue episode.")
+                                    PlaybackStateManager.setBuffering(false)
+                                    playNextQueueEpisode(excludeId = currentEp.id)
+                                    return@launch
+                                }
                                 delay(backoffMs)
-                                // Respect a pause or episode change the listener made during the backoff
                                 val stillCurrent = PlaybackStateManager.state.value.currentEpisode?.id == currentEp.id
-                                if (isActive && stillCurrent && player.playWhenReady) {
+                                if (isActive && stillCurrent) {
                                     try {
-                                        player.prepare()
-                                        player.play()
+                                        val safePosMs = computeSafeStartPositionMs(dbEp, null, resumePosMs)
+                                        if (safePosMs > 0L && rawPlayer.currentPosition < safePosMs) {
+                                            rawPlayer.seekTo(rawPlayer.currentMediaItemIndex, safePosMs)
+                                        }
+                                        rawPlayer.prepare()
+                                        rawPlayer.play()
                                     } catch (e: Exception) {
                                         android.util.Log.e("PlaybackService", "Recovery prepare failed", e)
                                         PlaybackStateManager.setBuffering(false)
+                                        sessionSkippedEpisodeIds.add(currentEp.id)
+                                        playNextQueueEpisode(excludeId = currentEp.id)
                                     }
+                                } else {
+                                    PlaybackStateManager.setBuffering(false)
                                 }
                             }
                         }
-                        ErrorResolution.MAX_RETRIES_REACHED -> {
-                            android.util.Log.e("PlaybackService", "Max retries reached for ${currentEp.title} (${error.errorCodeName}). Pausing playback.")
-                            persistCurrentProgress()
-                            player.pause()
-                            PlaybackStateManager.setBuffering(false)
-                            Toast.makeText(applicationContext, "Playback interrupted, tap play to retry", Toast.LENGTH_LONG).show()
-                        }
+                        ErrorResolution.MAX_RETRIES_REACHED,
                         ErrorResolution.DISMISS_UNPLAYABLE -> {
-                            persistCurrentProgress()
-                            // Decide from the URI that actually failed: the download row may already be
-                            // cleared (finishing at 98% deletes the file while the tail is still playing)
-                            val failedLocalFile = player.currentMediaItem?.localConfiguration?.uri?.scheme == "file"
+                            errorRetryJob?.cancel()
                             serviceScope.launch(Dispatchers.IO) {
-                                // A bad or missing local download is not a bad episode: drop it and stream instead
-                                if (failedLocalFile) {
-                                    android.util.Log.w("PlaybackService", "Local file failed (${error.errorCodeName}); falling back to streaming for ${currentEp.title}")
-                                    try {
-                                        com.eagertolisten.app.data.download.PodcastDownloadManager(applicationContext).deleteDownloadedEpisode(currentEp.id)
-                                    } catch (_: Exception) {}
-                                    withContext(Dispatchers.Main) {
-                                        loadAndPlayEpisode(currentEp.id, currentEp.podcastId)
+                                val dbEp = database.episodeDao().getEpisodeByIdSync(currentEp.id)
+                                if (dbEp != null && !dbEp.isCompleted && !dbEp.isDismissed) {
+                                    if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(currentEp.podcastId)) {
+                                        database.episodeDao().markEpisodeDismissed(currentEp.id, com.eagertolisten.app.data.local.LocalFolderFormat.MISSING_REASON)
+                                        database.queueDao().removeEpisodeFromQueue(currentEp.id)
+                                    } else {
+                                        var refreshedEp: Episode? = null
+                                        try {
+                                            withTimeout(5000L) {
+                                                repository.refreshFeed(currentEp.podcastId)
+                                            }
+                                            refreshedEp = database.episodeDao().getEpisodeByIdSync(currentEp.id)
+                                        } catch (_: Exception) {}
+
+                                        if (refreshedEp != null && refreshedEp.audioUrl != currentEp.audioUrl) {
+                                            android.util.Log.i("PlaybackService", "Enclosure URL changed after feed refresh. Retrying with new URL.")
+                                            withContext(Dispatchers.Main) {
+                                                loadAndPlayEpisode(refreshedEp.id, refreshedEp.podcastId, startPositionOverrideMs = resumePosMs)
+                                            }
+                                            return@launch
+                                        }
                                     }
-                                    return@launch
                                 }
 
-                                var refreshedEp: Episode? = null
-                                try {
-                                    repository.refreshFeed(currentEp.podcastId)
-                                    refreshedEp = database.episodeDao().getEpisodeByIdSync(currentEp.id)
-                                } catch (_: Exception) {}
-
-                                if (refreshedEp != null && refreshedEp.audioUrl != currentEp.audioUrl) {
-                                    android.util.Log.i("PlaybackService", "Enclosure URL changed after feed refresh. Retrying with new URL.")
-                                    withContext(Dispatchers.Main) {
-                                        loadAndPlayEpisode(refreshedEp.id, refreshedEp.podcastId)
-                                    }
-                                } else {
-                                    android.util.Log.w("PlaybackService", "Dismissing unplayable episode: ${currentEp.title}")
-                                    // A local folder file that can't be read is "missing" (moved, deleted or access
-                                    // lost), not a bad episode, so a later rescan can bring it back if it returns.
-                                    val reason = if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(currentEp.podcastId)) com.eagertolisten.app.data.local.LocalFolderFormat.MISSING_REASON else "UNPLAYABLE"
-                                    database.episodeDao().markEpisodeDismissed(currentEp.id, reason)
-                                    database.queueDao().removeEpisodeFromQueue(currentEp.id)
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(applicationContext, "Episode unplayable: ${currentEp.title}", Toast.LENGTH_SHORT).show()
-                                        playNextQueueEpisode()
-                                    }
+                                // Temporarily skip for the current drive, keeping it in the queue for next time
+                                sessionSkippedEpisodeIds.add(currentEp.id)
+                                android.util.Log.w("PlaybackService", "Temporarily skipping unreachable episode for this drive: '${currentEp.title}' (${error.errorCodeName})")
+                                com.eagertolisten.app.diagnostics.CrashReporter.recordPlaybackError(
+                                    context = applicationContext,
+                                    eventType = "Unreachable Episode ($resolution)",
+                                    episodeTitle = currentEp.title,
+                                    episodeId = currentEp.id,
+                                    podcastTitle = currentEp.podcastTitle,
+                                    podcastId = currentEp.podcastId,
+                                    mediaUri = currentEp.audioUrl,
+                                    localFileStatus = currentEp.localFilePath?.let { p -> val f = File(p); "exists=${f.exists()}, size=${if (f.exists()) f.length() else 0L}B" },
+                                    errorCode = error.errorCode,
+                                    errorCodeName = error.errorCodeName,
+                                    httpStatus = httpStatus,
+                                    positionSec = resumePosMs / 1000L,
+                                    durationSec = currentEp.durationSeconds,
+                                    recoveryAction = "Temporarily skipped for current drive (kept in queue) -> advancing to next playable queue episode",
+                                    throwable = error
+                                )
+                                withContext(Dispatchers.Main) {
+                                    PlaybackStateManager.setBuffering(false)
+                                    Toast.makeText(applicationContext, "Skipping unreachable episode for now: ${currentEp.title}", Toast.LENGTH_SHORT).show()
+                                    playNextQueueEpisode(excludeId = currentEp.id)
                                 }
                             }
                         }
                     }
+                } else {
+                    // No current episode in state; load top queue item
+                    loadAndPlayTopQueueItem()
                 }
             }
         })
+
+        // Restore any episodes previously marked UNPLAYABLE so they are never permanently lost
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val restored = database.episodeDao().clearUnplayableDismissals()
+                if (restored > 0) {
+                    android.util.Log.i("PlaybackService", "Restored $restored previously UNPLAYABLE episode(s) back to library.")
+                    repository.generateProgrammedQueue()
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("PlaybackService", "Could not clear unplayable dismissals", e)
+            }
+        }
 
         startQueueMirroring()
 
@@ -603,10 +776,31 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private fun computeSafeStartPositionMs(
+        episode: Episode,
+        podcast: Podcast?,
+        overrideMs: Long? = null
+    ): Long {
+        if (episode.isLive) return 0L
+        val skipIntroMs = (podcast?.skipIntroSeconds ?: 0).coerceAtLeast(0) * 1000L
+        val rawStartMs = when {
+            overrideMs != null && overrideMs >= 0L -> overrideMs
+            episode.playbackPositionSeconds > 0L -> episode.playbackPositionSeconds * 1000L
+            skipIntroMs > 0L -> skipIntroMs
+            else -> 0L
+        }
+        val durationMs = episode.durationSeconds * 1000L
+        // Never seek to or past the very end of the file (causes immediate EOF or READ_POSITION_OUT_OF_RANGE Source error)
+        if (durationMs > 30_000L && rawStartMs >= durationMs - 3_000L) {
+            return if (skipIntroMs > 0L && skipIntroMs < durationMs - 3_000L) skipIntroMs else 0L
+        }
+        return rawStartMs
+    }
+
     private suspend fun buildPlaylistForCurrentEpisode(currentEp: Episode): List<MediaItem> {
         val currentItem = createPlayableEpisodeItem(currentEp)
         val upcomingEpisodes = database.queueDao().getQueueEpisodesSync()
-            .filter { it.id != currentEp.id && !it.isCompleted && !it.isDismissed }
+            .filter { it.id != currentEp.id && it.id !in sessionSkippedEpisodeIds && !it.isCompleted && !it.isDismissed }
             .take(UPCOMING_QUEUE_ITEMS)
         val list = mutableListOf<MediaItem>()
         list.add(currentItem)
@@ -649,13 +843,14 @@ class PlaybackService : MediaLibraryService() {
                         }
                         val skipIntro = podcast.skipIntroSeconds
                         val skipOutro = podcast.skipOutroSeconds
-                        PlaybackStateManager.setEpisode(
-                            episode = currentEp,
-                            speed = newSpeed,
-                            skipIntro = skipIntro,
-                            skipOutro = skipOutro,
-                            isPlaying = player.isPlaying
-                        )
+                        PlaybackStateManager.update { state ->
+                            state.copy(
+                                playbackSpeed = newSpeed,
+                                skipIntroSeconds = skipIntro,
+                                skipOutroSeconds = skipOutro,
+                                isPlaying = player.isPlaying
+                            )
+                        }
                     }
                 }
             }
@@ -669,6 +864,17 @@ class PlaybackService : MediaLibraryService() {
             database.queueDao().getQueueEpisodes()
                 .debounce(300L)
                 .collect { queueEpisodes ->
+                    val currentEpId = rawPlayer.currentMediaItem?.mediaId
+                    if (currentEpId != null && !rawPlayer.isPlaying) {
+                        val dbEp = withContext(Dispatchers.IO) {
+                            database.episodeDao().getEpisodeByIdSync(currentEpId)
+                        }
+                        if (dbEp != null && (dbEp.isCompleted || dbEp.isDismissed) && queueEpisodes.none { it.id == currentEpId }) {
+                            android.util.Log.i("PlaybackService", "startQueueMirroring: loaded episode '${dbEp.title}' is now completed/dismissed. Priming next queue episode.")
+                            loadAndPrimeTopQueueItem()
+                            return@collect
+                        }
+                    }
                     syncUpcomingItemsWithQueue(queueEpisodes)
                 }
         }
@@ -688,7 +894,7 @@ class PlaybackService : MediaLibraryService() {
         val currentEpId = currentItem.mediaId
 
         val upcoming = queueEpisodes
-            .filter { it.id != currentEpId && it.id !in excludeIds && !it.isCompleted && !it.isDismissed && !it.isLive }
+            .filter { it.id != currentEpId && it.id !in excludeIds && it.id !in sessionSkippedEpisodeIds && !it.isCompleted && !it.isDismissed && !it.isLive }
             .take(UPCOMING_QUEUE_ITEMS)
 
         val newUpcomingItems = upcoming.map { createPlayableEpisodeItem(it) }
@@ -711,12 +917,23 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    private suspend fun pickTopPlayableQueueEpisode(excludeIds: Set<String> = emptySet()): Episode? {
+        val queue = database.queueDao().getQueueEpisodesSync()
+            .filter { !it.isCompleted && !it.isDismissed && it.id !in excludeIds }
+        val unskipped = queue.firstOrNull { it.id !in sessionSkippedEpisodeIds }
+        if (unskipped != null) return unskipped
+        if (queue.isNotEmpty()) {
+            sessionSkippedEpisodeIds.clear()
+            return queue.first()
+        }
+        return database.episodeDao().getRecentUnplayedEpisodesSync(5)
+            .firstOrNull { !it.isCompleted && !it.isDismissed && it.id !in excludeIds }
+    }
+
     private fun loadAndPrimeTopQueueItem() {
         serviceScope.launch(Dispatchers.IO) {
             database.queueDao().purgeLiveItemsFromQueue()
-            val topEpisode = database.queueDao().getQueueEpisodesSync().firstOrNull()
-                ?: database.episodeDao().getRecentUnplayedEpisodesSync(1).firstOrNull()
-                ?: return@launch
+            val topEpisode = pickTopPlayableQueueEpisode() ?: return@launch
             val podcast = database.podcastDao().getPodcastByIdSync(topEpisode.podcastId)
 
             val playlist = buildPlaylistForCurrentEpisode(topEpisode)
@@ -725,14 +942,7 @@ class PlaybackService : MediaLibraryService() {
                 checkMainThread()
                 if (rawPlayer.isPlaying) return@withContext
                 applyShowSettings(topEpisode, podcast)
-                val skipIntro = podcast?.skipIntroSeconds ?: 0
-                val startPosMs = if (topEpisode.playbackPositionSeconds > 0) {
-                    topEpisode.playbackPositionSeconds * 1000L
-                } else if (skipIntro > 0) {
-                    skipIntro * 1000L
-                } else {
-                    0L
-                }
+                val startPosMs = computeSafeStartPositionMs(topEpisode, podcast)
                 player.setMediaItems(playlist, 0, startPosMs)
                 player.prepare()
                 player.pause()
@@ -741,11 +951,11 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun loadAndPlayTopQueueItem() {
+        errorRetryJob?.cancel()
+        networkRetryCount = 0
         serviceScope.launch(Dispatchers.IO) {
             database.queueDao().purgeLiveItemsFromQueue()
-            val topEpisode = database.queueDao().getQueueEpisodesSync().firstOrNull()
-                ?: database.episodeDao().getRecentUnplayedEpisodesSync(1).firstOrNull()
-                ?: return@launch
+            val topEpisode = pickTopPlayableQueueEpisode() ?: return@launch
             val podcast = database.podcastDao().getPodcastByIdSync(topEpisode.podcastId)
 
             stopLiveInactivityWatchdog()
@@ -756,14 +966,7 @@ class PlaybackService : MediaLibraryService() {
             withContext(Dispatchers.Main) {
                 checkMainThread()
                 applyShowSettings(topEpisode, podcast)
-                val skipIntro = podcast?.skipIntroSeconds ?: 0
-                val startPosMs = if (topEpisode.playbackPositionSeconds > 0) {
-                    topEpisode.playbackPositionSeconds * 1000L
-                } else if (skipIntro > 0) {
-                    skipIntro * 1000L
-                } else {
-                    0L
-                }
+                val startPosMs = computeSafeStartPositionMs(topEpisode, podcast)
                 player.setMediaItems(playlist, 0, startPosMs)
                 player.prepare()
                 player.play()
@@ -794,6 +997,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun loadAndPlayEpisode(episodeId: String, podcastId: String?, startPositionOverrideMs: Long? = null) {
+        errorRetryJob?.cancel()
+        networkRetryCount = 0
+        sessionSkippedEpisodeIds.remove(episodeId)
         val currentId = PlaybackStateManager.state.value.currentEpisode?.id
         if (currentId != null && currentId != episodeId) {
             recordPlaybackHistory(currentId)
@@ -814,16 +1020,7 @@ class PlaybackService : MediaLibraryService() {
             withContext(Dispatchers.Main) {
                 checkMainThread()
                 applyShowSettings(episode, podcast)
-                val skipIntro = if (episode.isLive) 0 else (podcast?.skipIntroSeconds ?: 0)
-                val startPosMs = if (startPositionOverrideMs != null && !episode.isLive) {
-                    startPositionOverrideMs
-                } else if (episode.playbackPositionSeconds > 0) {
-                    episode.playbackPositionSeconds * 1000L
-                } else if (skipIntro > 0) {
-                    skipIntro * 1000L
-                } else {
-                    0L
-                }
+                val startPosMs = computeSafeStartPositionMs(episode, podcast, startPositionOverrideMs)
                 explicitStartEpisodeId = if (startPositionOverrideMs != null && !episode.isLive) episode.id else null
                 player.setMediaItems(playlist, 0, startPosMs)
                 player.prepare()
@@ -870,7 +1067,7 @@ class PlaybackService : MediaLibraryService() {
                     if (epId != null) {
                         onEpisodeFinished(epId)
                     }
-                    playNextQueueEpisode()
+                    playNextQueueEpisode(excludeId = epId)
                     break
                 }
 
@@ -887,9 +1084,23 @@ class PlaybackService : MediaLibraryService() {
     private fun persistCurrentProgress() {
         checkMainThread()
         val currentEpisode = PlaybackStateManager.state.value.currentEpisode ?: return
-        val currentPosSec = (player.currentPosition / 1000L).coerceAtLeast(0L)
+        val playerPosMs = player.currentPosition
+        val statePosMs = PlaybackStateManager.state.value.currentPositionMs
+        val savedPosMs = currentEpisode.playbackPositionSeconds * 1000L
+        // If the player is idle/errored and reports 0, preserve the in-memory or saved position
+        // so a Source error never overwrites the listener's saved timestamp with 0.
+        val effectivePosMs = when {
+            playerPosMs > 0L -> playerPosMs
+            player.playbackState == Player.STATE_IDLE && statePosMs > 0L -> statePosMs
+            player.playbackState == Player.STATE_IDLE && savedPosMs > 0L -> savedPosMs
+            else -> playerPosMs.coerceAtLeast(0L)
+        }
+        val currentPosSec = (effectivePosMs / 1000L).coerceAtLeast(0L)
+        if (currentPosSec == 0L && currentEpisode.playbackPositionSeconds > 0L && player.playbackState == Player.STATE_IDLE) {
+            return
+        }
         val rawDuration = player.duration
-        val isCompleted = rawDuration > 30_000L && player.currentPosition >= (rawDuration * 0.98)
+        val isCompleted = rawDuration > 30_000L && playerPosMs >= (rawDuration * 0.98)
 
         EagerApp.instance.appScope.launch(Dispatchers.IO) {
             repository.updatePlaybackProgress(currentEpisode.id, currentPosSec, isCompleted)
@@ -934,7 +1145,7 @@ class PlaybackService : MediaLibraryService() {
 
         android.util.Log.i("PlaybackService", "handleEpisodeEnded: finished '${currentEpisode.title}', advancing queue")
         onEpisodeFinished(currentEpisode.id)
-        playNextQueueEpisode()
+        playNextQueueEpisode(excludeId = currentEpisode.id)
     }
 
     private fun onEpisodeFinished(episodeId: String) {
@@ -972,25 +1183,28 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun playNextQueueEpisode() {
+    private fun playNextQueueEpisode(excludeId: String? = null) {
         checkMainThread()
         val currentId = PlaybackStateManager.state.value.currentEpisode?.id
         recordPlaybackHistory(currentId)
+        val excluded = setOfNotNull(currentId, excludeId)
         serviceScope.launch(Dispatchers.IO) {
-            val currentId = PlaybackStateManager.state.value.currentEpisode?.id
-            val nextEpisodes = database.queueDao().getQueueEpisodesSync().filter { it.id != currentId && !it.isCompleted }
-            if (nextEpisodes.isNotEmpty()) {
-                val next = nextEpisodes.first()
-                playNextQueueEpisodeWithNewsCheck(next)
+            val next = pickTopPlayableQueueEpisode(excludeIds = excluded)
+            if (next != null) {
+                playNextQueueEpisodeWithNewsCheck(next, excluded)
             } else {
                 withContext(Dispatchers.Main) {
                     checkMainThread()
                     if (rawPlayer.hasNextMediaItem()) {
                         rawPlayer.seekToNextMediaItem()
+                        if (rawPlayer.playbackState == Player.STATE_IDLE) {
+                            rawPlayer.prepare()
+                        }
                         rawPlayer.play()
                     } else {
                         rawPlayer.stop()
                         PlaybackStateManager.setPlaying(false)
+                        PlaybackStateManager.setBuffering(false)
                     }
                 }
             }
@@ -1136,9 +1350,12 @@ class PlaybackService : MediaLibraryService() {
 
         if (rawPlayer.hasNextMediaItem()) {
             rawPlayer.seekToNextMediaItem()
+            if (rawPlayer.playbackState == Player.STATE_IDLE) {
+                rawPlayer.prepare()
+            }
             rawPlayer.play()
         } else {
-            playNextQueueEpisode()
+            playNextQueueEpisode(excludeId = currentEp.id)
         }
     }
     fun playPreviousEpisodeOrRestart() {
@@ -1157,6 +1374,9 @@ class PlaybackService : MediaLibraryService() {
         // At or near start (<= 5s): navigate to previous episode
         if (rawPlayer.hasPreviousMediaItem()) {
             rawPlayer.seekToPreviousMediaItem()
+            if (rawPlayer.playbackState == Player.STATE_IDLE) {
+                rawPlayer.prepare()
+            }
             rawPlayer.play()
             return
         }
@@ -1175,7 +1395,7 @@ class PlaybackService : MediaLibraryService() {
      * Requirement 6: When the next podcast is expected to be a NEWS one, update that podcast
      * feed before playing to make sure the content is timely and correct.
      */
-    private suspend fun playNextQueueEpisodeWithNewsCheck(next: Episode) {
+    private suspend fun playNextQueueEpisodeWithNewsCheck(next: Episode, excludeIds: Set<String> = emptySet()) {
         val podcast = database.podcastDao().getPodcastByIdSync(next.podcastId)
         if (podcast?.playOrderStrategy == "NEWS") {
             android.util.Log.i("PlaybackService", "Next podcast is NEWS ('${podcast.title}'). Performing just-in-time feed update before playback...")
@@ -1192,8 +1412,8 @@ class PlaybackService : MediaLibraryService() {
             // Pick the latest top queue episode after refresh, skipping the episode that just ended
             // (it can still be at the top of the queue until its "finished" write lands).
             val finishedId = PlaybackStateManager.state.value.currentEpisode?.id
-            val refreshedNext = database.queueDao().getQueueEpisodesSync()
-                .firstOrNull { it.id != finishedId && !it.isCompleted && !it.isDismissed } ?: next
+            val allExcluded = excludeIds + setOfNotNull(finishedId)
+            val refreshedNext = pickTopPlayableQueueEpisode(excludeIds = allExcluded) ?: next
             serviceScope.launch(Dispatchers.Main) {
                 loadAndPlayEpisode(refreshedNext.id, refreshedNext.podcastId)
             }
@@ -1281,9 +1501,10 @@ class PlaybackService : MediaLibraryService() {
             .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
             .build()
 
-        val uri = if (episode.isDownloaded && !episode.localFilePath.isNullOrBlank() && File(episode.localFilePath).exists()) {
+        val localFile = if (episode.isDownloaded && !episode.localFilePath.isNullOrBlank()) File(episode.localFilePath) else null
+        val uri = if (localFile != null && localFile.exists() && localFile.length() > 1024L) {
             android.util.Log.i("PlaybackService", "Playing offline local file: ${episode.localFilePath}")
-            Uri.fromFile(File(episode.localFilePath))
+            Uri.fromFile(localFile)
         } else {
             Uri.parse(episode.audioUrl)
         }
@@ -1659,63 +1880,38 @@ class PlaybackService : MediaLibraryService() {
                 LiveSessionManager.clearLiveSession(applicationContext)
             }
 
-            // 1. Check current playing/paused episode (if not an expired live show)
+            // 1. Check current playing/paused episode (only if not already completed, dismissed, or expired)
             val currentEp = PlaybackStateManager.state.value.currentEpisode
             if (!liveExpired && currentEp != null) {
-                val freshEp = database.episodeDao().getEpisodeByIdSync(currentEp.id) ?: currentEp
-                val podcast = database.podcastDao().getPodcastByIdSync(freshEp.podcastId)
-                val currentPos = if (PlaybackStateManager.state.value.currentPositionMs > 0L) {
-                    PlaybackStateManager.state.value.currentPositionMs
-                } else {
-                    freshEp.playbackPositionSeconds * 1000L
+                val freshEp = database.episodeDao().getEpisodeByIdSync(currentEp.id)
+                if (freshEp != null && !freshEp.isCompleted && !freshEp.isDismissed && freshEp.id !in sessionSkippedEpisodeIds) {
+                    val podcast = database.podcastDao().getPodcastByIdSync(freshEp.podcastId)
+                    val memPosMs = PlaybackStateManager.state.value.currentPositionMs
+                    val rawPosMs = if (memPosMs > 0L) memPosMs else freshEp.playbackPositionSeconds * 1000L
+                    val currentPos = computeSafeStartPositionMs(freshEp, podcast, rawPosMs)
+                    val playlist = buildPlaylistForCurrentEpisode(freshEp)
+                    serviceScope.launch(Dispatchers.Main) {
+                        applyShowSettings(freshEp, podcast)
+                    }
+                    return@coroutineFuture MediaSession.MediaItemsWithStartPosition(
+                        playlist,
+                        0,
+                        currentPos
+                    )
                 }
-                val playlist = buildPlaylistForCurrentEpisode(freshEp)
-                serviceScope.launch(Dispatchers.Main) {
-                    applyShowSettings(freshEp, podcast)
-                }
-                return@coroutineFuture MediaSession.MediaItemsWithStartPosition(
-                    playlist,
-                    0,
-                    currentPos
-                )
             }
 
-            // 2. Fall back to top pending playlist item
-            val queueEpisodes = database.queueDao().getQueueEpisodesSync()
-            if (queueEpisodes.isNotEmpty()) {
-                val first = queueEpisodes.first()
+            // 2. Fall back to top playable pending playlist item
+            val first = pickTopPlayableQueueEpisode()
+            if (first != null) {
                 val podcast = database.podcastDao().getPodcastByIdSync(first.podcastId)
-                val skipIntro = podcast?.skipIntroSeconds ?: 0
-                val posMs = if (first.playbackPositionSeconds > 0) {
-                    first.playbackPositionSeconds * 1000L
-                } else if (skipIntro > 0) {
-                    skipIntro * 1000L
-                } else {
-                    0L
-                }
+                val posMs = computeSafeStartPositionMs(first, podcast)
                 val playlist = buildPlaylistForCurrentEpisode(first)
                 serviceScope.launch(Dispatchers.Main) {
                     applyShowSettings(first, podcast)
                 }
                 return@coroutineFuture MediaSession.MediaItemsWithStartPosition(
                     playlist,
-                    0,
-                    posMs
-                )
-            }
-
-            // 3. Fall back to most recent unplayed episode
-            val unplayed = database.episodeDao().getRecentUnplayedEpisodesSync(1)
-            if (unplayed.isNotEmpty()) {
-                val first = unplayed.first()
-                val podcast = database.podcastDao().getPodcastByIdSync(first.podcastId)
-                val posMs = if (first.playbackPositionSeconds > 0) first.playbackPositionSeconds * 1000L else 0L
-                val item = createPlayableEpisodeItem(first)
-                serviceScope.launch(Dispatchers.Main) {
-                    applyShowSettings(first, podcast)
-                }
-                return@coroutineFuture MediaSession.MediaItemsWithStartPosition(
-                    listOf(item),
                     0,
                     posMs
                 )

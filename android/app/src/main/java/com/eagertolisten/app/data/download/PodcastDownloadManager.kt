@@ -247,9 +247,12 @@ class PodcastDownloadManager(private val context: Context) {
         val queueItems = queueDao.getAllQueueItemsSync()
         val queueEpisodeIds = queueItems.map { it.episodeId }.toSet()
         val pinnedEpisodeIds = queueItems.filter { it.isManual }.map { it.episodeId }.toSet()
+        val activeEpisodeId = com.eagertolisten.app.service.PlaybackStateManager.state.value.currentEpisode?.id
 
         for (ep in downloaded) {
             if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(ep.podcastId)) continue
+            // Never delete the file of the episode currently loaded in the player
+            if (ep.id == activeEpisodeId) continue
             if (ep.isCompleted || ep.isDismissed || (!queueEpisodeIds.contains(ep.id) && !pinnedEpisodeIds.contains(ep.id))) {
                 if (ep.localFilePath != null) {
                     val file = File(ep.localFilePath)

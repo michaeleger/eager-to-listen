@@ -136,7 +136,7 @@ class PlaybackCoordinator(
         val attempt = retryCount.coerceAtLeast(1)
         return when (resolution) {
             ErrorResolution.RETRY_AUDIO_DEVICE -> minOf(attempt * 1_000L, 5_000L)
-            ErrorResolution.RETRY_NETWORK -> minOf(1_000L shl minOf(attempt, 5), 30_000L)
+            ErrorResolution.RETRY_NETWORK -> minOf(attempt * 1_500L, 3_000L)
             else -> 0L
         }
     }
@@ -168,7 +168,7 @@ class PlaybackCoordinator(
     }
 
     companion object {
-        const val MAX_NETWORK_RETRIES = 20      // ~8.5 minutes of backoff: rides out tunnels and dead zones
+        const val MAX_NETWORK_RETRIES = 2       // 2 quick retries (1.5s, 3.0s) before advancing to next playable episode
         const val MAX_AUDIO_DEVICE_RETRIES = 10 // ~40 seconds: covers calls ending and Bluetooth reconnects
     }
 

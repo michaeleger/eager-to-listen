@@ -5,7 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+
+
+
+## [0.9.3-alpha] - 2026-11-05
+
+### 🚗 Android Auto Playback & Source Error Recovery
+- **Immediate advance past completed episodes**: Pressing Play or resuming on Android Auto now checks SQLite state first and immediately advances to the next playable queue episode if the previously loaded episode was already marked played or dismissed.
+- **Preserved timestamps at 98% completion**: Marking a loaded episode played at 98% now preserves the listener's real timestamp (`markEpisodeCompletedKeepPosition`) instead of overwriting `playbackPositionSeconds` with `durationSeconds` (which reset to `0:00` when RSS duration was missing or sought to 100% EOF).
+- **Protected active download files & automatic streaming fallback**: Background download cleanup no longer deletes the local `.mp3` file of the episode currently loaded in the player. If any `file://` download is missing, truncated, or corrupt, the player immediately deletes the bad file and switches to streaming at the saved timestamp.
+- **Fast recovery without stalling or permanent dismissal**: Reduced network source-error retries from 20 (~8.5 minutes) to 2 quick retries (`1.5s`, `3.0s`) before temporarily skipping the unreachable episode for the current drive and advancing to the next playable queue item. Episodes are never permanently marked `UNPLAYABLE` in the database.
+- **Source & playback errors included in emailable reports**: Recorded source errors, playback errors, local-file fallbacks, and recovery actions are persisted and automatically included in **Send Alpha Feedback Email** and **Email Crash & Playback Error Report**.
+
+---
+
 ## [0.9.2-alpha] - 2026-11-02
+
 
 Fixes and features from the first round of 0.9.1 tester reports. Thank you to everyone who sent them in.
 

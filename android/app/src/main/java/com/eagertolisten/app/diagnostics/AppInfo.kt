@@ -60,13 +60,32 @@ object AppInfo {
         }.trimEnd()
     }
 
+    /**
+     * Builds the full diagnostic report including recent source errors and playback errors
+     * for emailable feedback and clipboard diagnostics.
+     */
+    fun buildDiagnosticBlockWithErrors(context: Context): String {
+        val base = buildDiagnosticBlock()
+        val playbackErrors = CrashReporter.latestPlaybackErrors(context)
+        return buildString {
+            appendLine(base)
+            appendLine()
+            appendLine("--- Recent Source & Playback Errors ---")
+            if (playbackErrors.isNullOrBlank()) {
+                appendLine("None recorded")
+            } else {
+                appendLine(playbackErrors.trimEnd())
+            }
+        }.trimEnd()
+    }
+
     fun copyDiagnosticsToClipboard(
         context: Context,
         toastMessage: String = "App version & diagnostic info copied to clipboard"
     ): Boolean {
         return try {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText("Eager to Listen App Info", buildDiagnosticBlock())
+            val clip = ClipData.newPlainText("Eager to Listen App Info", buildDiagnosticBlockWithErrors(context))
             clipboard.setPrimaryClip(clip)
             Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
             true

@@ -50,7 +50,14 @@ object PlaybackStateManager {
     }
 
     fun setProgress(positionMs: Long, durationMs: Long, bufferedMs: Long) {
+        val currentEp = _state.value.currentEpisode
+        val updatedEp = if (currentEp != null && positionMs > 0L) {
+            currentEp.copy(playbackPositionSeconds = positionMs / 1000L)
+        } else {
+            currentEp
+        }
         _state.value = _state.value.copy(
+            currentEpisode = updatedEp,
             currentPositionMs = positionMs,
             durationMs = if (durationMs > 0) durationMs else _state.value.durationMs,
             bufferedPositionMs = bufferedMs

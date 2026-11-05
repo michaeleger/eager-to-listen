@@ -267,7 +267,7 @@ fun AboutSheet(
                                     Intent.EXTRA_TEXT,
                                     "Hi Michael,\n\nHere is my feedback on Eager to Listen ${AppInfo.displayVersion}:\n\n" +
                                         "--- System Diagnostics ---\n" +
-                                        AppInfo.buildDiagnosticBlock() +
+                                        AppInfo.buildDiagnosticBlockWithErrors(context) +
                                         "\n--------------------------\n\n"
                                 )
                             }
@@ -294,7 +294,7 @@ fun AboutSheet(
                         onClick = {
                             val report = CrashReporter.latestReport(context)
                             if (report == null) {
-                                android.widget.Toast.makeText(context, "No crash reports saved. App is healthy!", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "No crash or playback error reports saved. App is healthy!", android.widget.Toast.LENGTH_SHORT).show()
                             } else if (!CrashReporter.emailReport(context, report)) {
                                 android.widget.Toast.makeText(context, "Contact: ${CrashReporter.DEVELOPER_EMAIL}", android.widget.Toast.LENGTH_LONG).show()
                             }
@@ -304,7 +304,7 @@ fun AboutSheet(
                     ) {
                         Icon(imageVector = Icons.Default.Email, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(8.dp))
-                        Text("Email Last Crash Report", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("Email Crash & Playback Error Report", fontWeight = FontWeight.SemiBold, color = TextPrimary)
                     }
 
                     OutlinedButton(
