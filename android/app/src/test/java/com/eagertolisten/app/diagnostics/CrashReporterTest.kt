@@ -1,6 +1,7 @@
 package com.eagertolisten.app.diagnostics
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,5 +58,27 @@ class CrashReporterTest {
         assertTrue(entry.contains("Position / Duration: 1420s / 3600s"))
         assertTrue(entry.contains("Recovery Action: Deleted bad local download and switched to streaming at 1420s"))
         assertTrue(entry.contains("Cause: RuntimeException: Source error -> IllegalStateException: FileNotFoundException"))
+    }
+
+    @Test
+    fun privateFeedKeysAreRemovedFromEmailedReports() {
+        val entry = CrashReporter.formatPlaybackErrorEntry(
+            eventType = "Source / Playback Error (RETRY_NETWORK)",
+            episodeTitle = "Bonus episode",
+            episodeId = "ep-9",
+            podcastTitle = "Members Feed",
+            podcastId = "https://www.patreon.com/rss/someshow?auth=SECRETKEY123",
+            mediaUri = "https://user:pa55@cdn.example.com/audio/ep9.mp3?token=SECRETKEY123#t=10",
+            localFileStatus = null,
+            errorCode = 2001,
+            errorCodeName = "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED",
+            recoveryAction = "Retry 1/2",
+            throwable = RuntimeException("Unable to connect to https://cdn.example.com/audio/ep9.mp3?token=SECRETKEY123")
+        )
+        assertFalse(entry.contains("SECRETKEY123"))
+        assertFalse(entry.contains("pa55"))
+        assertTrue(entry.contains("Media URI: https://cdn.example.com/audio/ep9.mp3?[removed]"))
+        assertTrue(entry.contains("https://www.patreon.com/rss/someshow?[removed]"))
+        assertEquals("https://example.com/feed.xml", CrashReporter.redactUrls("https://example.com/feed.xml"))
     }
 }

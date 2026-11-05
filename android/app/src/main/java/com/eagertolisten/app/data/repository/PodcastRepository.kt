@@ -797,7 +797,9 @@ class PodcastRepository(context: Context) {
                     // finished episode back on top.
                     queueDao.removeEpisodeFromQueue(episodeId)
                 } else if (existing != null && positionSec > 0L) {
-                    episodeDao.markEpisodeCompletedKeepPosition(episodeId, positionSec, existing.completedAt ?: System.currentTimeMillis())
+                    // Already played: update the position only. Passing the old completedAt here would also
+                    // move updatedAt back in time, and sync would let an older copy win.
+                    episodeDao.updateCompletedPosition(episodeId, positionSec)
                 }
             } else {
                 markEpisodeFinished(episodeId)

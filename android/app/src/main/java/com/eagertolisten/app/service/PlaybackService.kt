@@ -515,7 +515,10 @@ class PlaybackService : MediaLibraryService() {
                     // 1. If a local downloaded file failed (for ANY reason: missing, truncated, corrupt, range error),
                     // immediately delete the bad local file and switch to streaming at the saved timestamp
                     // (or advance to the next episode if this episode was already completed).
-                    val failedLocalFile = rawPlayer.currentMediaItem?.localConfiguration?.uri?.scheme == "file"
+                    // Only when the file itself failed: an audio output error (call, Bluetooth, car) on a
+                    // good download must not delete it, or the car is left streaming with no signal.
+                    val failedLocalFile = rawPlayer.currentMediaItem?.localConfiguration?.uri?.scheme == "file" &&
+                        coordinator.isLocalFileSourceError(error.errorCode)
                     if (failedLocalFile && localFallbackAttemptedIds.add(currentEp.id)) {
                         errorRetryJob?.cancel()
                         serviceScope.launch(Dispatchers.IO) {
@@ -573,8 +576,9 @@ class PlaybackService : MediaLibraryService() {
 
                     // 2. Classify remote / audio error and either retry briefly or skip for the current session
                     val httpStatus = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
-                    when (val resolution = coordinator.classifyError(error.errorCode, networkRetryCount, httpStatus)) {
+                    when (val resolution = coordinator.classifyError(error.errorCode, networkRetryCount, httpStatus, online = isNetworkAvailable())) {
                         ErrorResolution.RETRY_NETWORK,
+                        ErrorResolution.RETRY_OFFLINE,
                         ErrorResolution.RETRY_AUDIO_DEVICE -> {
                             networkRetryCount++
                             val backoffMs = coordinator.retryDelayMs(resolution, networkRetryCount)
@@ -593,7 +597,11 @@ class PlaybackService : MediaLibraryService() {
                                 httpStatus = httpStatus,
                                 positionSec = resumePosMs / 1000L,
                                 durationSec = currentEp.durationSeconds,
-                                recoveryAction = "Retry $networkRetryCount/${PlaybackCoordinator.MAX_NETWORK_RETRIES} after ${backoffMs}ms at ${resumePosMs / 1000L}s",
+                                recoveryAction = "Retry $networkRetryCount/${when (resolution) {
+                                    ErrorResolution.RETRY_OFFLINE -> PlaybackCoordinator.MAX_OFFLINE_RETRIES
+                                    ErrorResolution.RETRY_AUDIO_DEVICE -> PlaybackCoordinator.MAX_AUDIO_DEVICE_RETRIES
+                                    else -> PlaybackCoordinator.MAX_NETWORK_RETRIES
+                                }} after ${backoffMs}ms at ${resumePosMs / 1000L}s",
                                 throwable = error
                             )
                             errorRetryJob?.cancel()
@@ -915,6 +923,17 @@ class PlaybackService : MediaLibraryService() {
                 rawPlayer.addMediaItems(newUpcomingItems)
             }
         }
+    }
+
+    /** True when the phone has a working internet connection (or when it can't tell). */
+    private fun isNetworkAvailable(): Boolean = try {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+        caps != null &&
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } catch (_: Exception) {
+        true
     }
 
     private suspend fun pickTopPlayableQueueEpisode(excludeIds: Set<String> = emptySet()): Episode? {

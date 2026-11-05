@@ -286,5 +286,49 @@ class PlaybackCoordinatorTest {
         assertEquals(3_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 5))
         assertEquals(1_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 1))
         assertEquals(5_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 9))
+        assertEquals(2_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_OFFLINE, 1))
+        assertEquals(30_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_OFFLINE, 10))
+    }
+
+    @Test
+    fun classifyError_offlineWaitsForSignalInsteadOfSkipping() {
+        val failed = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        // Past the quick online limit, but there's no signal: keep waiting
+        assertEquals(
+            ErrorResolution.RETRY_OFFLINE,
+            coordinator.classifyError(failed, PlaybackCoordinator.MAX_NETWORK_RETRIES + 3, online = false)
+        )
+        assertEquals(
+            ErrorResolution.MAX_RETRIES_REACHED,
+            coordinator.classifyError(failed, PlaybackCoordinator.MAX_OFFLINE_RETRIES, online = false)
+        )
+        // Online, the same error skips quickly
+        assertEquals(
+            ErrorResolution.MAX_RETRIES_REACHED,
+            coordinator.classifyError(failed, PlaybackCoordinator.MAX_NETWORK_RETRIES, online = true)
+        )
+        // Offline doesn't change audio-device or permanent errors
+        assertEquals(
+            ErrorResolution.RETRY_AUDIO_DEVICE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, 0, online = false)
+        )
+        assertEquals(
+            ErrorResolution.DISMISS_UNPLAYABLE,
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, 0, online = false)
+        )
+    }
+
+    @Test
+    fun localFileSourceError_onlyWhenTheFileItselfFailed() {
+        assertTrue(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND))
+        assertTrue(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE))
+        assertTrue(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED))
+        assertTrue(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_DECODING_FAILED))
+        // A call, Bluetooth switch or car head unit change must not delete a good download
+        assertFalse(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED))
+        assertFalse(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED))
+        assertFalse(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED))
+        assertFalse(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_UNSPECIFIED))
+        assertFalse(coordinator.isLocalFileSourceError(PlaybackException.ERROR_CODE_TIMEOUT))
     }
 }

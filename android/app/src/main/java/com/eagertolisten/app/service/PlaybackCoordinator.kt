@@ -15,6 +15,7 @@ enum class DiscontinuityAction {
 
 enum class ErrorResolution {
     RETRY_NETWORK,
+    RETRY_OFFLINE,
     RETRY_AUDIO_DEVICE,
     MAX_RETRIES_REACHED,
     DISMISS_UNPLAYABLE
@@ -121,11 +122,15 @@ class PlaybackCoordinator(
      * navigation prompts, Bluetooth / car head unit switching) and recover once the audio device
      * is available again. Unknown errors are retried, matching the original always-retry behavior.
      */
-    fun classifyError(errorCode: Int, retryCount: Int, httpStatus: Int? = null): ErrorResolution {
+    fun classifyError(errorCode: Int, retryCount: Int, httpStatus: Int? = null, online: Boolean = true): ErrorResolution {
         return when {
             isAudioDeviceError(errorCode) ->
                 if (retryCount < MAX_AUDIO_DEVICE_RETRIES) ErrorResolution.RETRY_AUDIO_DEVICE else ErrorResolution.MAX_RETRIES_REACHED
             isPermanentError(errorCode, httpStatus) -> ErrorResolution.DISMISS_UNPLAYABLE
+            // No signal at all (tunnel, dead zone): the source isn't broken, so wait for the
+            // network instead of skipping through the whole queue
+            !online ->
+                if (retryCount < MAX_OFFLINE_RETRIES) ErrorResolution.RETRY_OFFLINE else ErrorResolution.MAX_RETRIES_REACHED
             else ->
                 if (retryCount < MAX_NETWORK_RETRIES) ErrorResolution.RETRY_NETWORK else ErrorResolution.MAX_RETRIES_REACHED
         }
@@ -137,11 +142,20 @@ class PlaybackCoordinator(
         return when (resolution) {
             ErrorResolution.RETRY_AUDIO_DEVICE -> minOf(attempt * 1_000L, 5_000L)
             ErrorResolution.RETRY_NETWORK -> minOf(attempt * 1_500L, 3_000L)
+            ErrorResolution.RETRY_OFFLINE -> minOf(1_000L shl minOf(attempt, 5), 30_000L)
             else -> 0L
         }
     }
 
-    private fun isAudioDeviceError(errorCode: Int): Boolean {
+    /**
+     * A downloaded file is only worth deleting (and streaming instead) when reading or decoding
+     * the file itself failed. Audio output errors (calls, Bluetooth, car head unit) and generic
+     * errors say nothing about the file.
+     */
+    fun isLocalFileSourceError(errorCode: Int): Boolean =
+        errorCode in 2000..4999 && !isAudioDeviceError(errorCode)
+
+    fun isAudioDeviceError(errorCode: Int): Boolean {
         // 5xxx = audio sink / AudioTrack errors (init, write, offload)
         return errorCode in 5000..5999 ||
                 errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
@@ -168,7 +182,8 @@ class PlaybackCoordinator(
     }
 
     companion object {
-        const val MAX_NETWORK_RETRIES = 2       // 2 quick retries (1.5s, 3.0s) before advancing to next playable episode
+        const val MAX_NETWORK_RETRIES = 2       // online but the source fails: 2 quick retries (1.5s, 3.0s), then the next episode
+        const val MAX_OFFLINE_RETRIES = 20      // no network: ~8.5 minutes of backoff rides out tunnels and dead zones
         const val MAX_AUDIO_DEVICE_RETRIES = 10 // ~40 seconds: covers calls ending and Bluetooth reconnects
     }
 

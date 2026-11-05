@@ -158,6 +158,14 @@ object CrashReporter {
         }
     }
 
+    /**
+     * Private and premium feeds (Patreon, Supercast, Substack...) put the listener's access key in
+     * the link, usually in the query string. Reports get emailed, so keep only scheme, host and path.
+     */
+    fun redactUrls(text: String): String = text
+        .replace(Regex("(\\w+://)[^/@\\s]+@"), "$1")
+        .replace(Regex("((?:https?|file)://[^\\s?#]*)[?#][^\\s)\\]]*"), "$1?[removed]")
+
     fun formatPlaybackErrorEntry(
         eventType: String,
         episodeTitle: String?,
@@ -183,10 +191,10 @@ object CrashReporter {
                 appendLine("Episode: ${episodeTitle ?: "Unknown"} (id=${episodeId ?: "none"})")
             }
             if (!podcastTitle.isNullOrBlank() || !podcastId.isNullOrBlank()) {
-                appendLine("Show: ${podcastTitle ?: "Unknown"} (id=${podcastId ?: "none"})")
+                appendLine("Show: ${podcastTitle ?: "Unknown"} (id=${podcastId?.let { redactUrls(it) } ?: "none"})")
             }
             if (!mediaUri.isNullOrBlank()) {
-                appendLine("Media URI: $mediaUri")
+                appendLine("Media URI: ${redactUrls(mediaUri)}")
             }
             if (!localFileStatus.isNullOrBlank()) {
                 appendLine("Local File: $localFileStatus")
@@ -202,7 +210,7 @@ object CrashReporter {
             if (throwable != null) {
                 val causeMsg = generateSequence(throwable) { it.cause }
                     .joinToString(" -> ") { "${it.javaClass.simpleName}: ${it.message ?: ""}" }
-                appendLine("Cause: ${causeMsg.take(800)}")
+                appendLine("Cause: ${redactUrls(causeMsg).take(800)}")
             }
         }.trimEnd()
     }
@@ -316,7 +324,7 @@ object CrashReporter {
         }.apply { isDaemon = true; start() }
         reader.join(TimeUnit.SECONDS.toMillis(2))
         if (reader.isAlive) process.destroy()
-        output.takeLast(MAX_TRACE_CHARS)
+        redactUrls(output.takeLast(MAX_TRACE_CHARS))
     } catch (_: Throwable) {
         ""
     }

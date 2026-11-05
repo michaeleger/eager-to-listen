@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### 🚗 Playback recovery (follow-ups to 0.9.3)
+- **No signal no longer skips your episode.** 0.9.3 gives up on a streaming episode after two quick retries and moves on, which is right when the source is broken but wrong in a tunnel or dead zone, where it would skip through the queue. With no internet connection at all, the player waits for the signal again (up to about 8½ minutes, as before 0.9.3). With a connection, a failing source still moves on after the two quick retries.
+- **A phone call or Bluetooth switch no longer deletes a good download.** 0.9.3 deletes a downloaded file and streams instead on any error while playing it. Now that only happens when reading the file itself failed (missing, cut short, can't be read); audio output errors retry as before.
+- **Error reports leave out private feed keys.** Premium and private feeds put your access key in the link; links in emailed reports now keep only the address and drop the rest.
+- Listening on past 98% of an already-played episode no longer moves its sync time backward (an older copy from another device could win).
+
 ### 🔄 Sync
 - **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device used to bring it back at the next sync, because the other device still had it. Removals are now remembered and synced, and the newer action wins: pin it again later and it comes back.
 - The sync file gains a `manualQueueRemoved` list. It's an addition, so 0.9.2 still reads new files without trouble.

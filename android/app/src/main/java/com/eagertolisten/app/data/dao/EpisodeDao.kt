@@ -179,6 +179,14 @@ interface EpisodeDao {
     """)
     suspend fun clearUnplayableDismissals(timestamp: Long = System.currentTimeMillis()): Int
 
+    /** Already played: just keep the real position up to date (completedAt stays as it was). */
+    @Query("UPDATE episodes SET playbackPositionSeconds = :positionSec, updatedAt = :updatedAt WHERE id = :episodeId")
+    suspend fun updateCompletedPosition(
+        episodeId: String,
+        positionSec: Long,
+        updatedAt: Long = System.currentTimeMillis()
+    ): Int
+
     // Bulk "mark this & older / this & newer as played" for one feed. Uses a WHERE clause rather
     // than an ID list so feeds with thousands of episodes stay under SQLite's bind-variable limit.
     @Query("""
