@@ -20,6 +20,7 @@ import com.eagertolisten.app.importer.PodcastAddictImporter
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Email
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eagertolisten.app.data.sync.SyncManager
+import com.eagertolisten.app.diagnostics.AppInfo
 import com.eagertolisten.app.diagnostics.CrashReporter
 import com.eagertolisten.app.settings.PlayerSettings
 import com.eagertolisten.app.settings.RemoteButtonAction
@@ -86,6 +88,7 @@ fun SettingsScreen(
     val syncState by syncManager.state.collectAsState()
     val playerSettings by PlayerSettings.state.collectAsState()
     var showSyncSheet by remember { mutableStateOf(false) }
+    var showAboutSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -281,11 +284,27 @@ fun SettingsScreen(
     ) {
         TopAppBar(
             title = {
-                Text(
-                    text = "Settings & Preferences",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = TextPrimary
-                )
+                Column {
+                    Text(
+                        text = "Settings & Preferences",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Eager to Listen " + AppInfo.displayVersion,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                }
+            },
+            actions = {
+                androidx.compose.material3.IconButton(onClick = { showAboutSheet = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "About Eager to Listen",
+                        tint = BurntOrange
+                    )
+                }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = ForestGreenDarkest)
         )
@@ -1170,85 +1189,134 @@ fun SettingsScreen(
                 }
             }
 
-            // Alpha Feedback & Support Card
+            // About Eager to Listen & App Info Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = ForestGreenElevated),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Email, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.size(10.dp))
-                        Text(
-                            text = "Alpha Feedback & Support",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = TextPrimary
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.size(10.dp))
+                            Text(
+                                text = "About Eager to Listen",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = TextPrimary
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = BurntOrange
+                        ) {
+                            Text(
+                                text = AppInfo.displayVersion,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = TextPrimary
+                            )
+                        }
                     }
 
                     Text(
-                        text = "Have feedback, found a bug, or want to suggest a feature? Contact Michael Eger directly.",
+                        text = "Smart power-user podcast player with Curated Airwaves™ (Radio U), Podcasting 2.0, and privacy-first sync.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
 
+                    // Diagnostics summary surface for instant visual verification
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = ForestGreenSurface,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Developer Contact",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextMuted
-                                )
-                                Text(
-                                    text = "michael.eger@michaelegerconsulting.com",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    color = BurntOrange
-                                )
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Version:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                Text(AppInfo.versionName, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = TextPrimary)
                             }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Build Code & Variant:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                Text("${AppInfo.versionCode} (${AppInfo.buildType})", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = TextPrimary)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Database Schema:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                Text("Room v${AppInfo.databaseVersion}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = TextPrimary)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Device Environment:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                Text(AppInfo.deviceSummary, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = Priority4Color)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Release Track:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                                Text(AppInfo.ALPHA_TRACK, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { showAboutSheet = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("View Full About", fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { AppInfo.copyDiagnosticsToClipboard(context) },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Info", style = MaterialTheme.typography.labelSmall, color = TextPrimary)
                         }
                     }
 
                     Button(
                         onClick = {
                             val intent = Intent(Intent.ACTION_SENDTO).apply {
-                                data = Uri.parse("mailto:michael.eger@michaelegerconsulting.com")
-                                putExtra(Intent.EXTRA_SUBJECT, "[Eager to Listen Alpha Feedback]")
+                                data = Uri.parse("mailto:${AppInfo.DEVELOPER_EMAIL}")
+                                putExtra(Intent.EXTRA_SUBJECT, "[Eager to Listen ${AppInfo.displayVersion} Feedback]")
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "Hi Michael,\n\nHere is my feedback on Eager to Listen:\n\nDevice: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE})\n\n"
+                                    "Hi Michael,\n\nHere is my feedback on Eager to Listen ${AppInfo.displayVersion}:\n\n" +
+                                        "--- System Diagnostics ---\n" +
+                                        AppInfo.buildDiagnosticBlock() +
+                                        "\n--------------------------\n\n"
                                 )
                             }
                             try {
                                 context.startActivity(intent)
                             } catch (e: Exception) {
-                                android.widget.Toast.makeText(context, "Contact: michael.eger@michaelegerconsulting.com", android.widget.Toast.LENGTH_LONG).show()
+                                android.widget.Toast.makeText(context, "Contact: ${AppInfo.DEVELOPER_EMAIL}", android.widget.Toast.LENGTH_LONG).show()
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = BurntOrange),
+                        colors = ButtonDefaults.buttonColors(containerColor = ForestGreenSurface),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(imageVector = Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(8.dp))
-                        Text("Send Alpha Feedback Email", fontWeight = FontWeight.Bold)
+                        Text("Send Alpha Feedback Email", fontWeight = FontWeight.SemiBold, color = TextPrimary)
                     }
 
                     OutlinedButton(
                         onClick = {
                             val report = CrashReporter.latestReport(context)
                             if (report == null) {
-                                android.widget.Toast.makeText(context, "No crash reports saved. Nice.", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "No crash reports saved. App is healthy!", android.widget.Toast.LENGTH_SHORT).show()
                             } else if (!CrashReporter.emailReport(context, report)) {
-                                android.widget.Toast.makeText(context, "No email app found. Contact: ${CrashReporter.DEVELOPER_EMAIL}", android.widget.Toast.LENGTH_LONG).show()
+                                android.widget.Toast.makeText(context, "Contact: ${CrashReporter.DEVELOPER_EMAIL}", android.widget.Toast.LENGTH_LONG).show()
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -1282,6 +1350,13 @@ fun SettingsScreen(
     if (showInspirationStudio) {
         InspirationStudioSheet(
             onDismiss = { showInspirationStudio = false }
+        )
+    }
+
+    // About Eager to Listen Sheet
+    if (showAboutSheet) {
+        AboutSheet(
+            onDismiss = { showAboutSheet = false }
         )
     }
 }

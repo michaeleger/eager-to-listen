@@ -61,6 +61,7 @@ Fixes and features from the first round of 0.9.1 tester reports. Thank you to ev
 - **Feed refresh hardening**: a feed too large to parse fails on its own instead of crashing the app, a failure while rebuilding the queue after a refresh no longer crashes the app, and only one full refresh runs at a time.
 - **Built-in crash reports**: if the app crashes, the next launch offers to email the report (stack trace, device, version and recent app log) to the developer. It opens your email app so you can read it first, and nothing is sent unless you tap Send. Also available any time from Settings → "Email Last Crash Report".
 - **Database update (schema v7)**: stores each show's `<podcast:guid>` for duplicate detection. It fills in on the next feed refresh.
+- **About page & runtime diagnostics**: Settings features an info action in the top app bar and an "About Eager to Listen" card opening a dedicated About sheet. Displays version and build info, database schema version, device environment, release highlights, one-tap diagnostic copying to clipboard, and feedback email drafting with attached system diagnostics.
 
 ---
 
