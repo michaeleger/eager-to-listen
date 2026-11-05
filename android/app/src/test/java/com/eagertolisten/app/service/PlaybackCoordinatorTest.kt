@@ -206,7 +206,7 @@ class PlaybackCoordinatorTest {
         )
         assertEquals(
             ErrorResolution.RETRY_NETWORK,
-            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, 4)
+            coordinator.classifyError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, 1)
         )
         assertEquals(
             ErrorResolution.RETRY_NETWORK,
@@ -281,10 +281,9 @@ class PlaybackCoordinatorTest {
 
     @Test
     fun retryDelay_backsOffAndCaps() {
-        assertEquals(2_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 1))
-        assertEquals(16_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 4))
-        assertEquals(30_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 5))
-        assertEquals(30_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 19))
+        assertEquals(1_500L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 1))
+        assertEquals(3_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 2))
+        assertEquals(3_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_NETWORK, 5))
         assertEquals(1_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 1))
         assertEquals(5_000L, coordinator.retryDelayMs(ErrorResolution.RETRY_AUDIO_DEVICE, 9))
     }

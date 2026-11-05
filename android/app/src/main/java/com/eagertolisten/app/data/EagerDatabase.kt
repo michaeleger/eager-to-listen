@@ -38,6 +38,9 @@ abstract class EagerDatabase : RoomDatabase() {
     abstract fun pendingRemoteEpisodeDao(): PendingRemoteEpisodeDao
 
     companion object {
+        /** Shown on the About page. Keep equal to `version` in @Database above. */
+        const val DATABASE_VERSION = 8
+
         @Volatile
         private var INSTANCE: EagerDatabase? = null
 

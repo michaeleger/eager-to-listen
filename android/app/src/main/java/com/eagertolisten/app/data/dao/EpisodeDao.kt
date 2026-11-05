@@ -155,6 +155,30 @@ interface EpisodeDao {
     """)
     suspend fun markEpisodeFinished(episodeId: String, completedAt: Long = System.currentTimeMillis()): Int
 
+    @Query("""
+        UPDATE episodes 
+        SET isCompleted = 1,
+            completedAt = :completedAt,
+            playbackPositionSeconds = :positionSec,
+            dismissReason = NULL,
+            updatedAt = :completedAt
+        WHERE id = :episodeId
+    """)
+    suspend fun markEpisodeCompletedKeepPosition(
+        episodeId: String,
+        positionSec: Long,
+        completedAt: Long = System.currentTimeMillis()
+    ): Int
+
+    @Query("""
+        UPDATE episodes
+        SET isDismissed = 0,
+            dismissReason = NULL,
+            updatedAt = :timestamp
+        WHERE dismissReason = 'UNPLAYABLE'
+    """)
+    suspend fun clearUnplayableDismissals(timestamp: Long = System.currentTimeMillis()): Int
+
     // Bulk "mark this & older / this & newer as played" for one feed. Uses a WHERE clause rather
     // than an ID list so feeds with thousands of episodes stay under SQLite's bind-variable limit.
     @Query("""

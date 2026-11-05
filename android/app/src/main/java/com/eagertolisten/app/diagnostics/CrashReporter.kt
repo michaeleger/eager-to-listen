@@ -20,7 +20,8 @@ import java.util.concurrent.TimeUnit
  *  2. On the next launch the app asks whether to email it to the developer.
  *  3. "Send" opens the tester's email app with the report filled in; nothing is sent
  *     without the tester tapping Send there.
- * Settings > "Email last crash report" sends the most recent report on demand.
+ * Settings > "Email last crash report" sends the most recent report on demand,
+ * including any recorded source errors and playback errors.
  */
 object CrashReporter {
 
@@ -30,6 +31,9 @@ object CrashReporter {
     private const val DIR_NAME = "crash_reports"
     private const val PENDING_FILE = "pending_crash.txt"   // not yet offered to the tester
     private const val LAST_FILE = "last_crash.txt"         // already offered; kept for Settings
+    private const val PLAYBACK_ERRORS_FILE = "playback_errors.txt" // persistent source & playback error log
+    private const val PLAYBACK_ENTRY_HEADER = "=== [SOURCE / PLAYBACK ERROR] ==="
+    private const val MAX_PLAYBACK_ERROR_ENTRIES = 25
     private const val MAX_TRACE_CHARS = 40_000
     private const val MAX_LOG_LINES = 300
 
@@ -59,9 +63,149 @@ object CrashReporter {
     /** A crash report the tester hasn't been asked about yet, or null. */
     fun pendingReport(context: Context): String? = readFile(File(dir(context), PENDING_FILE))
 
-    /** The most recent crash report (pending or already offered), or null. */
-    fun latestReport(context: Context): String? =
-        pendingReport(context) ?: readFile(File(dir(context), LAST_FILE))
+    /** Recorded source & playback error history, newest first, or null if none recorded. */
+    fun latestPlaybackErrors(context: Context): String? =
+        readFile(File(dir(context), PLAYBACK_ERRORS_FILE))
+
+    /**
+     * The most recent crash and/or source & playback error report, or null if neither exists.
+     */
+    fun latestReport(context: Context): String? {
+        val crash = pendingReport(context) ?: readFile(File(dir(context), LAST_FILE))
+        val playbackErrors = latestPlaybackErrors(context)
+        if (crash == null && playbackErrors == null) return null
+
+        return buildString {
+            if (crash != null) {
+                append(crash.trimEnd())
+                if (playbackErrors != null && !crash.contains(PLAYBACK_ENTRY_HEADER)) {
+                    appendLine()
+                    appendLine()
+                    appendLine("--- Recorded Source & Playback Errors ---")
+                    appendLine(playbackErrors.trimEnd())
+                }
+            } else if (playbackErrors != null) {
+                appendLine("=== Eager to Listen Source & Playback Error Report ===")
+                appendLine("App: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_TYPE})")
+                appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+                appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+                appendLine("Generated at: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())}")
+                appendLine()
+                appendLine("--- Recorded Source & Playback Errors (newest first) ---")
+                appendLine(playbackErrors.trimEnd())
+                val log = recentAppLog()
+                if (log.isNotBlank()) {
+                    appendLine()
+                    appendLine("--- Recent app log (last $MAX_LOG_LINES lines) ---")
+                    appendLine(log)
+                }
+            }
+        }.trimEnd()
+    }
+
+    /**
+     * Records a source error, playback error, or recovery event so it is included in
+     * emailable diagnostic and crash reports.
+     */
+    @Synchronized
+    fun recordPlaybackError(
+        context: Context,
+        eventType: String,
+        episodeTitle: String?,
+        episodeId: String?,
+        podcastTitle: String?,
+        podcastId: String?,
+        mediaUri: String?,
+        localFileStatus: String?,
+        errorCode: Int?,
+        errorCodeName: String?,
+        httpStatus: Int? = null,
+        positionSec: Long? = null,
+        durationSec: Long? = null,
+        recoveryAction: String,
+        throwable: Throwable? = null
+    ) {
+        try {
+            val entry = formatPlaybackErrorEntry(
+                eventType = eventType,
+                episodeTitle = episodeTitle,
+                episodeId = episodeId,
+                podcastTitle = podcastTitle,
+                podcastId = podcastId,
+                mediaUri = mediaUri,
+                localFileStatus = localFileStatus,
+                errorCode = errorCode,
+                errorCodeName = errorCodeName,
+                httpStatus = httpStatus,
+                positionSec = positionSec,
+                durationSec = durationSec,
+                recoveryAction = recoveryAction,
+                throwable = throwable
+            )
+            val file = File(dir(context.applicationContext), PLAYBACK_ERRORS_FILE)
+            val existingRaw = readFile(file).orEmpty()
+            val existingEntries = existingRaw
+                .split(PLAYBACK_ENTRY_HEADER)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .map { "$PLAYBACK_ENTRY_HEADER\n$it" }
+            val combined = (listOf(entry.trim()) + existingEntries)
+                .take(MAX_PLAYBACK_ERROR_ENTRIES)
+                .joinToString("\n\n")
+            file.writeText(combined.take(MAX_TRACE_CHARS))
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to record playback error", e)
+        }
+    }
+
+    fun formatPlaybackErrorEntry(
+        eventType: String,
+        episodeTitle: String?,
+        episodeId: String?,
+        podcastTitle: String?,
+        podcastId: String?,
+        mediaUri: String?,
+        localFileStatus: String?,
+        errorCode: Int?,
+        errorCodeName: String?,
+        httpStatus: Int? = null,
+        positionSec: Long? = null,
+        durationSec: Long? = null,
+        recoveryAction: String,
+        throwable: Throwable? = null,
+        timestamp: String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())
+    ): String {
+        return buildString {
+            appendLine(PLAYBACK_ENTRY_HEADER)
+            appendLine("Time: $timestamp")
+            appendLine("Event: $eventType")
+            if (!episodeTitle.isNullOrBlank() || !episodeId.isNullOrBlank()) {
+                appendLine("Episode: ${episodeTitle ?: "Unknown"} (id=${episodeId ?: "none"})")
+            }
+            if (!podcastTitle.isNullOrBlank() || !podcastId.isNullOrBlank()) {
+                appendLine("Show: ${podcastTitle ?: "Unknown"} (id=${podcastId ?: "none"})")
+            }
+            if (!mediaUri.isNullOrBlank()) {
+                appendLine("Media URI: $mediaUri")
+            }
+            if (!localFileStatus.isNullOrBlank()) {
+                appendLine("Local File: $localFileStatus")
+            }
+            if (errorCode != null || !errorCodeName.isNullOrBlank() || httpStatus != null) {
+                val httpPart = if (httpStatus != null) " / HTTP $httpStatus" else ""
+                appendLine("Error Code: ${errorCodeName ?: "UNKNOWN"} (${errorCode ?: -1})$httpPart")
+            }
+            if (positionSec != null || durationSec != null) {
+                appendLine("Position / Duration: ${positionSec ?: 0L}s / ${durationSec ?: 0L}s")
+            }
+            appendLine("Recovery Action: $recoveryAction")
+            if (throwable != null) {
+                val causeMsg = generateSequence(throwable) { it.cause }
+                    .joinToString(" -> ") { "${it.javaClass.simpleName}: ${it.message ?: ""}" }
+                appendLine("Cause: ${causeMsg.take(800)}")
+            }
+        }.trimEnd()
+    }
 
     /** Call after the next-launch prompt is answered either way, so it isn't shown again. */
     fun markPendingHandled(context: Context) {
@@ -84,8 +228,8 @@ object CrashReporter {
             model = Build.MODEL,
             androidRelease = Build.VERSION.RELEASE
         )
-        val body = "Hi Michael,\n\nEager to Listen crashed. Here's the report.\n" +
-            "(Optional) What was I doing when it crashed:\n\n\n" + report
+        val body = "Hi Michael,\n\nHere is my Eager to Listen diagnostic / crash / playback error report.\n" +
+            "(Optional) What was I doing when this happened:\n\n\n" + report
 
         // ACTION_SEND with a mailto: selector limits the chooser to email apps but still
         // passes subject/body (some email apps ignore extras on a plain ACTION_SENDTO).
@@ -129,6 +273,7 @@ object CrashReporter {
 
     private fun writeReport(context: Context, thread: Thread, throwable: Throwable) {
         val trace = StringWriter().also { throwable.printStackTrace(PrintWriter(it)) }.toString()
+        val playbackErrors = latestPlaybackErrors(context)
         val text = buildString {
             appendLine("=== Eager to Listen crash report ===")
             appendLine("App: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_TYPE})")
@@ -139,6 +284,11 @@ object CrashReporter {
             appendLine()
             appendLine("--- Stack trace ---")
             appendLine(trace.take(MAX_TRACE_CHARS))
+            if (!playbackErrors.isNullOrBlank()) {
+                appendLine()
+                appendLine("--- Recorded Source & Playback Errors ---")
+                appendLine(playbackErrors)
+            }
             val log = recentAppLog()
             if (log.isNotBlank()) {
                 appendLine()

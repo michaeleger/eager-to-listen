@@ -792,10 +792,12 @@ class PodcastRepository(context: Context) {
                 // audio is never deleted while the episode can still be resumed.
                 val existing = episodeDao.getEpisodeByIdSync(episodeId)
                 if (existing != null && !existing.isCompleted) {
-                    episodeDao.markEpisodeFinished(episodeId, System.currentTimeMillis())
+                    episodeDao.markEpisodeCompletedKeepPosition(episodeId, positionSec, System.currentTimeMillis())
                     // Drop it from the queue now (cheap, no rebuild) so a restart doesn't put a
                     // finished episode back on top.
                     queueDao.removeEpisodeFromQueue(episodeId)
+                } else if (existing != null && positionSec > 0L) {
+                    episodeDao.markEpisodeCompletedKeepPosition(episodeId, positionSec, existing.completedAt ?: System.currentTimeMillis())
                 }
             } else {
                 markEpisodeFinished(episodeId)
