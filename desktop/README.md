@@ -16,7 +16,8 @@ desktop/
 │       ├── queueEngine.js   #   domain/QueueEngine.kt (fair interleaving, 4 play orders)
 │       ├── library.js       #   DAO + PodcastRepository behavior (finish, skip, pins, rebuild)
 │       ├── sync.js          #   data/sync/SyncSerializer.kt (format 2 parse/serialize/merge)
-│       └── syncRunner.js    #   SyncManager.performSync (merge all copies, write one, clean up)
+│       ├── syncRunner.js    #   SyncManager.performSync (merge all copies, write one, clean up)
+│       └── playbackRecovery.js # PlaybackCoordinator error rules: retry, stream instead, skip for now
 ├── src-tauri/               # Native side (Rust): saves the library, fetches feeds,
 │   └── src/lib.rs           #   reads/writes the sync file via rclone or a folder, downloads
 └── test/                    # node --test, includes the Android tests ported to JS
@@ -115,6 +116,16 @@ JSON object per line: show, episode (title, page link, audio), timestamp, a jump
 transcript link and excerpt (`timing` is `estimated` for plain-text transcripts like Riverside's),
 note, tags, and `removedAt` once cleared. The file only grows; the app refuses to write a
 smaller one. The phone app writes the same file the same way.
+
+## When an episode won't play
+
+The desktop follows the phone's recovery rules (`src/core/playbackRecovery.js`, tested in
+`test/playbackRecovery.test.js`): a broken download is deleted and the episode streams from your spot;
+a failing link gets two quick retries, then the app re-reads the feed in case the link moved, then
+skips it for this session (it stays in your queue; press Play on it to try again). With no internet
+connection it waits, up to about 8½ minutes, and retries as soon as the connection is back. Each
+problem is listed in **Settings → Playback problems**; **Copy all** gives you a report to paste into
+an email, with the private part of links (after `?`) removed.
 
 ## Not in this alpha yet
 

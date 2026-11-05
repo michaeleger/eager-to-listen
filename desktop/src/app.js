@@ -8,6 +8,7 @@ import { runSync } from './core/syncRunner.js';
 import { STRATEGY_LABELS } from './core/queueEngine.js';
 import * as B from './core/bookmarks.js';
 import { parseTranscript } from './core/transcript.js';
+import * as R from './core/playbackRecovery.js';
 
 // Show unexpected errors in the window instead of failing silently
 function showFatal(msg) {
@@ -344,18 +345,38 @@ const showOf = (ep) => (ep ? state.lib.podcasts[ep.podcastId] : null);
 let lastProgressSave = 0;
 let finishing = false;
 
-function play(episodeId, { autoplay = true } = {}) {
+// Error recovery (core/playbackRecovery.js). Episodes that can't play are skipped for this session
+// only: they stay in the queue, and playing one by hand tries it again.
+const rec = { id: null, retries: 0, timer: null, lastGood: null, localTried: new Set(), feedChecked: new Set() };
+const sessionSkipped = new Set();
+const ERR_NAMES = { 1: 'MEDIA_ERR_ABORTED', 2: 'MEDIA_ERR_NETWORK', 3: 'MEDIA_ERR_DECODE', 4: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+
+function play(episodeId, { autoplay = true, recovering = false } = {}) {
   const ep = state.lib.episodes[episodeId];
   if (!ep) return;
   if (state.nowPlaying && state.nowPlaying !== episodeId) saveProgressNow();
+  clearTimeout(rec.timer);
+  rec.timer = null;
+  if (!recovering || rec.id !== episodeId) {
+    rec.id = episodeId;
+    rec.retries = 0;
+    rec.feedChecked.delete(episodeId);
+    sessionSkipped.delete(episodeId);
+  }
   state.nowPlaying = episodeId;
   state.lib.nowPlayingId = episodeId;
   finishing = false;
   const show = showOf(ep);
   audio.src = ep.downloadPath ? fileSrc(ep.downloadPath) : ep.audioUrl;
   audio.dataset.episode = episodeId;
+  audio.dataset.local = ep.downloadPath ? '1' : '';
   audio.playbackRate = show?.playbackSpeed || 1;
-  if (autoplay) audio.play().catch((e) => toast(`Can't play this episode: ${e.message || e}`, 6000));
+  if (autoplay) {
+    audio.play().catch((e) => {
+      // A failed source shows up in the 'error' handler; a cancelled load is ours
+      if (e?.name !== 'AbortError' && e?.name !== 'NotSupportedError') toast(`Can't play this episode: ${e.message || e}`, 6000);
+    });
+  }
   L.rebuildQueue(state.lib, { nowPlayingId: episodeId });
   persist();
   updateMediaSession(ep, show);
@@ -367,9 +388,12 @@ audio.addEventListener('loadedmetadata', () => {
   if (!ep) return;
   const show = showOf(ep);
   if (!ep.durationSeconds && Number.isFinite(audio.duration)) ep.durationSeconds = Math.round(audio.duration);
-  const resumeAt = ep.playbackPositionSeconds;
-  if (resumeAt > 0 && (!Number.isFinite(audio.duration) || resumeAt < audio.duration - 5)) audio.currentTime = resumeAt;
-  else if (show?.skipIntroSeconds > 0) audio.currentTime = show.skipIntroSeconds;
+  const start = R.safeStartPosition({
+    resumeAt: ep.playbackPositionSeconds,
+    durationSec: Number.isFinite(audio.duration) ? audio.duration : ep.durationSeconds || 0,
+    skipIntroSec: show?.skipIntroSeconds || 0,
+  });
+  if (start > 0) audio.currentTime = start;
   audio.playbackRate = show?.playbackSpeed || 1;
   $('#speed').value = String(audio.playbackRate);
 });
@@ -378,6 +402,7 @@ audio.addEventListener('timeupdate', () => {
   const ep = nowEp();
   if (!ep) return;
   const t = audio.currentTime;
+  if (t > 0 && audio.dataset.episode === ep.id) rec.lastGood = { id: ep.id, t };
   if (Date.now() - lastProgressSave > 10_000 && !audio.paused) saveProgressNow();
   const show = showOf(ep);
   if (show?.skipOutroSeconds > 0 && Number.isFinite(audio.duration) && audio.duration - t <= show.skipOutroSeconds && t > 30) {
@@ -386,15 +411,106 @@ audio.addEventListener('timeupdate', () => {
   renderProgress();
 });
 audio.addEventListener('play', () => render());
+audio.addEventListener('playing', () => {
+  // Back on its feet after a retry: the next problem starts a fresh count
+  if (rec.id === state.nowPlaying) rec.retries = 0;
+});
 audio.addEventListener('pause', () => {
   saveProgressNow();
   render();
   syncSoon(30_000);
 });
 audio.addEventListener('ended', () => finishCurrent());
-audio.addEventListener('error', () => {
-  if (audio.dataset.episode) toast("This episode wouldn't load. Check your connection, or download it first.", 6000);
+audio.addEventListener('error', () => onAudioError());
+
+// The connection is back: retry a waiting episode now instead of at the end of its backoff
+window.addEventListener('online', () => {
+  if (rec.timer && rec.id === state.nowPlaying) {
+    clearTimeout(rec.timer);
+    rec.timer = null;
+    play(rec.id, { recovering: true });
+  }
 });
+
+async function onAudioError() {
+  const ep = nowEp();
+  const err = audio.error;
+  if (!ep || !err || audio.dataset.episode !== ep.id) return;
+  if (rec.id !== ep.id) {
+    rec.id = ep.id;
+    rec.retries = 0;
+  }
+  const local = audio.dataset.local === '1';
+  // Keep the real spot: a failed load can reset the clock to 0
+  if (rec.lastGood?.id === ep.id && rec.lastGood.t > (ep.playbackPositionSeconds || 0)) {
+    L.updatePlaybackProgress(state.lib, ep.id, rec.lastGood.t);
+  }
+  const resolution = R.classifyError({
+    code: err.code,
+    retryCount: rec.retries,
+    online: navigator.onLine,
+    local,
+    localFallbackTried: rec.localTried.has(ep.id),
+    feedChecked: rec.feedChecked.has(ep.id),
+  });
+  if (resolution === 'IGNORE') return;
+  const show = showOf(ep);
+  const log = (event, action) => {
+    state.lib.playbackLog = R.logPlaybackProblem(state.lib.playbackLog, {
+      event,
+      episode: ep.title,
+      show: show?.title,
+      url: local ? ep.downloadPath : ep.audioUrl,
+      code: ERR_NAMES[err.code] || String(err.code),
+      detail: err.message || '',
+      position: Math.floor(ep.playbackPositionSeconds || 0),
+      action,
+    });
+    persist();
+  };
+
+  if (resolution === 'STREAM_INSTEAD') {
+    rec.localTried.add(ep.id);
+    const path = ep.downloadPath;
+    ep.downloadPath = null;
+    if (path) invoke('delete_download', { path }).catch(() => {});
+    log('Downloaded file failed', `Deleted the download and streamed from ${fmtTime(ep.playbackPositionSeconds || 0)}`);
+    toast("The downloaded file wouldn't play, so it's streaming instead.", 5000);
+    play(ep.id, { recovering: true });
+    return;
+  }
+  if (resolution === 'RETRY_NETWORK' || resolution === 'RETRY_OFFLINE') {
+    rec.retries += 1;
+    const wait = R.retryDelayMs(resolution, rec.retries);
+    const offline = resolution === 'RETRY_OFFLINE';
+    log(offline ? 'No connection' : 'Source error', `Try ${rec.retries} of ${offline ? R.MAX_OFFLINE_RETRIES : R.MAX_NETWORK_RETRIES} in ${Math.round(wait / 1000)}s`);
+    if (offline && rec.retries === 1) toast('No internet connection. Waiting for it to come back…', 6000);
+    rec.timer = setTimeout(() => {
+      rec.timer = null;
+      if (state.nowPlaying === ep.id) play(ep.id, { recovering: true });
+    }, wait);
+    return;
+  }
+  if (resolution === 'CHECK_FEED') {
+    rec.feedChecked.add(ep.id);
+    const before = ep.audioUrl;
+    if (show && !show.id.startsWith('local:')) await Promise.race([refreshShow(show), new Promise((r) => setTimeout(r, 8000))]);
+    if (state.nowPlaying !== ep.id) return;
+    const fresh = state.lib.episodes[ep.id];
+    if (fresh?.audioUrl && fresh.audioUrl !== before) {
+      log('Episode link changed', 'The feed has a new link for it; playing that');
+      rec.retries = 0;
+      play(ep.id, { recovering: true });
+      return;
+    }
+  }
+  sessionSkipped.add(ep.id);
+  log(navigator.onLine ? "Episode wouldn't play" : 'No connection', 'Skipped for now (still in the queue); playing the next episode');
+  toast(`Skipping "${ep.title}" for now. It stays in your queue.`, 6000);
+  persist();
+  syncSoon(30_000);
+  playNextInQueue();
+}
 
 function saveProgressNow() {
   const ep = nowEp();
@@ -410,7 +526,7 @@ async function finishCurrent() {
   const ep = nowEp();
   if (!ep) return;
   const path = ep.downloadPath;
-  L.markFinished(state.lib, ep.id);
+  L.markFinished(state.lib, ep.id, Date.now(), { positionSec: audio.currentTime });
   if (path) {
     ep.downloadPath = null;
     invoke('delete_download', { path }).catch(() => {});
@@ -421,15 +537,17 @@ async function finishCurrent() {
 }
 
 function playNextInQueue() {
-  const next = L.queuedEpisodes(state.lib).find((e) => e.id !== state.nowPlaying);
+  const next = R.pickNextPlayable(L.queuedEpisodes(state.lib), { exclude: [state.nowPlaying], skipped: sessionSkipped });
   if (next) play(next.id);
   else {
+    clearTimeout(rec.timer);
+    rec.timer = null;
     audio.pause();
     audio.removeAttribute('src');
     state.nowPlaying = null;
     state.lib.nowPlayingId = null;
     render();
-    toast("That's the end of your queue.");
+    toast(sessionSkipped.size ? "Nothing else in your queue will play right now. Press Play on an episode to try it again." : "That's the end of your queue.", 6000);
   }
 }
 
@@ -450,10 +568,25 @@ function seek(delta) {
 }
 
 function togglePlay() {
-  if (!audio.src) {
-    const first = L.queuedEpisodes(state.lib)[0];
+  const ep = nowEp();
+  if (!audio.src || !ep) {
+    const first = R.pickNextPlayable(L.queuedEpisodes(state.lib), { skipped: sessionSkipped }) || L.queuedEpisodes(state.lib)[0];
     if (first) play(first.id);
     return;
+  }
+  if (audio.paused) {
+    // Played to the end on another device since it was loaded: go to the top of the queue instead
+    if (ep.isCompleted || ep.isDismissed) {
+      const next = R.pickNextPlayable(L.queuedEpisodes(state.lib), { exclude: [ep.id], skipped: sessionSkipped });
+      if (next) play(next.id);
+      else toast("That's the end of your queue.");
+      return;
+    }
+    // A failed or waiting source: load it again rather than calling play() on a dead element
+    if (audio.error || rec.timer) {
+      play(ep.id);
+      return;
+    }
   }
   audio.paused ? audio.play() : audio.pause();
 }
@@ -943,8 +1076,29 @@ function viewSettings() {
       <label for="pi-secret">API secret</label><input id="pi-secret" type="password" name="podcastIndexSecret" value="${esc(s.podcastIndexSecret || '')}" autocomplete="off" />
       <span></span><div><button class="btn" type="submit">Save</button></div>
     </form>
+    <h2>Playback problems</h2>
+    ${viewPlaybackLog()}
     <h2>About</h2>
     <p class="sub">Eager to Listen desktop, alpha. Device ID <code>${esc(state.lib.deviceId)}</code>. Keys: Space play/pause, ← rewind, → forward.</p>`;
+}
+
+function viewPlaybackLog() {
+  const log = state.lib.playbackLog || [];
+  if (!log.length) return '<p class="sub">None recorded. When an episode won\'t load, what happened and what the app did about it shows up here.</p>';
+  const rows = log
+    .slice(0, 5)
+    .map(
+      (e) => `<div class="item" style="grid-template-columns:1fr"><div class="meta">
+        <div class="title">${esc(e.event)}: ${esc(e.episode || 'Unknown episode')}</div>
+        <div class="line2">${esc(new Date(e.at).toLocaleString())}${e.show ? ` · ${esc(e.show)}` : ''} · ${esc(e.action || '')}</div></div></div>`,
+    )
+    .join('');
+  return `<p class="sub">The last ${log.length} problem${log.length === 1 ? '' : 's'} (newest first). Links are copied without the part after "?", so private feed keys stay out.</p>
+    <div class="list">${rows}</div>
+    <div class="row-actions">
+      <button class="btn small" data-action="copy-playback-log">Copy all</button>
+      <button class="ghost small" data-action="clear-playback-log">Clear</button>
+    </div>`;
 }
 
 function render() {
@@ -1134,6 +1288,16 @@ document.addEventListener('click', (e) => {
       main.scrollTop = 0;
       break;
     }
+    case 'copy-playback-log': {
+      const header = `Eager to Listen desktop playback problems\nDevice: ${lib.deviceId}\nCopied: ${new Date().toISOString()}\nUser agent: ${navigator.userAgent}`;
+      copyText(R.formatPlaybackLog(lib.playbackLog, header)).then((ok) => toast(ok ? 'Copied' : "Couldn't copy"));
+      break;
+    }
+    case 'clear-playback-log':
+      lib.playbackLog = [];
+      persist();
+      render();
+      break;
     case 'copy-share':
       copyText(state.share.markdown).then((ok) => toast(ok ? 'List copied' : "Couldn't copy; use Save as file instead"));
       break;

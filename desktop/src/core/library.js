@@ -120,12 +120,14 @@ export function updatePlaybackProgress(lib, episodeId, positionSec, now = Date.n
   e.updatedAt = now;
 }
 
-export function markFinished(lib, episodeId, now = Date.now()) {
+export function markFinished(lib, episodeId, now = Date.now(), { positionSec = 0 } = {}) {
   const e = lib.episodes[episodeId];
   if (!e) return;
   e.isCompleted = true;
   e.completedAt = now;
-  e.playbackPositionSeconds = e.durationSeconds;
+  // At the end. When the feed never gave a length, keep where playback really stopped (Android
+  // 0.9.3 does the same) instead of writing 0, which would show as "0:00".
+  e.playbackPositionSeconds = e.durationSeconds > 0 ? e.durationSeconds : Math.max(0, Math.floor(positionSec || 0));
   e.dismissReason = null;
   e.updatedAt = now;
   removeFromQueue(lib, episodeId, { byHand: false });

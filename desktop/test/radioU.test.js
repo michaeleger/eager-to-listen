@@ -45,3 +45,15 @@ test('Hot List is Priority 1 unplayed, newest first; Played is newest finished f
   assert.deepEqual(hotList(L).map((e) => e.id), ['a2']);
   assert.deepEqual(playedList(L).map((e) => e.id), ['b1', 'a1']);
 });
+
+test('finishing keeps the real spot when the feed gave no length', async () => {
+  const { markFinished } = await import('../src/core/library.js');
+  const L = lib3();
+  L.episodes.a1.durationSeconds = 0;
+  markFinished(L, 'a1', 5000, { positionSec: 1834.6 });
+  assert.equal(L.episodes.a1.isCompleted, true);
+  assert.equal(L.episodes.a1.playbackPositionSeconds, 1834);
+  L.episodes.a2.durationSeconds = 3600;
+  markFinished(L, 'a2', 5000, { positionSec: 3590 });
+  assert.equal(L.episodes.a2.playbackPositionSeconds, 3600);
+});

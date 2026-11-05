@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Finds your phone's sync folder** by searching your Drive for the sync file, or lets you browse to it. rclone can live in your home folder; no sudo needed.
 - Ships as an AppImage that carries its own audio codecs, so it runs on machines where you can't install packages.
 - Check for new episodes, download episodes for offline play, bookmark a spot, and pick up where you left off after a restart.
+- **Recovers from playback errors the way the phone does (0.9.3, plus the fixes above):** a download that won't play is deleted and streamed from your spot; a link that fails gets two quick retries, then a check of the feed for a new link, then it's skipped for now (it stays in the queue, and pressing Play on it tries again). With no connection it waits instead of skipping. When everything left has failed, it stops rather than cycling the queue. Never starts an episode in its last seconds.
+- **Settings → Playback problems** lists what went wrong and what the app did, with Copy all for sending a report (private feed keys are left out).
 
 ---
 
