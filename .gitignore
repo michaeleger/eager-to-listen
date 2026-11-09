@@ -17,6 +17,15 @@ android/.idea/
 android/*.iml
 android/local.properties
 android/captures/
+# Keystore & Signing credentials (NEVER commit)
+*.keystore
+*.jks
+*.p12
+keystore.properties
+android/keystore.properties
+android/app/keystore.properties
+EagerToListen*
+
 android/.navigation/
 android/.cxx/
 android/.externalNativeBuild/
