@@ -1,0 +1,43 @@
+Categories:
+  - Multimedia
+  - Internet
+License: MIT
+AuthorName: Michael Scott Eger
+AuthorEmail: michael.eger@michaelegerconsulting.com
+AuthorWebSite: https://eagertobehealthy.com
+WebSite: https://eagertobehealthy.com/eager-to-listen
+SourceCode: https://github.com/michaeleger/eager-to-listen
+IssueTracker: https://github.com/michaeleger/eager-to-listen/issues
+Changelog: https://github.com/michaeleger/eager-to-listen/blob/main/CHANGELOG.md
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.9.3-alpha
+CurrentVersionCode: 12
+
+Builds:
+  - versionName: 0.9.3-alpha
+    versionCode: 12
+    commit: d33a8bba77b913686bc900d66ebcb556e86caf30
+    subdir: android
+    gradle:
+      - yes
+    output: app/build/outputs/apk/release/app-release-unsigned.apk
+
+AutoName: Eager to Listen
+Summary: Power-user podcast player with Curated Airwaves and Podcasting 2.0
+Description: |-
+  Eager to Listen is an open-standards, privacy-first podcast player designed
+  for daily commuters, serial learners, and audio power-users.
+
+  Featuring the Curated Airwaves™ Engine (Radio U), Eager to Listen acts like
+  your own personal public radio station, programming your day's listening with
+  smart priority weighting and anti-binge fair rotation so no single show
+  hijacks your queue.
+
+  Features:
+  * Curated Airwaves™ Engine (Radio U): 5-tier priority matrix (P1 to P5), Hot List, and 4 play order strategies
+  * Native Podcasting 2.0: Synchronized interactive transcripts (SRT, WebVTT, JSON), rich chapters with artwork, live broadcast feeds (<podcast:liveItem>), and person tags
+  * Value for Value (V4V): Direct creator funding and Lightning boostagrams
+  * Built for Commuting: Full Android Auto media library support and steering-wheel controls
+  * Zero-Server Privacy: Personal cloud sync via private Google Drive AppData folder without third-party tracking or ads

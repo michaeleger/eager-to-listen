@@ -47,22 +47,34 @@ We are opening our **Closed Alpha Testing Program** and looking for passionate l
 
 ## 📲 How to Install & Get Started
 
-### Option A: Native Android App (Pixel, Samsung, OnePlus, etc.)
-*Supports Android 8.0 (Oreo / API 26) through Android 16.*
+### Option A: Google Play Store (Closed Testing Track — Recommended for Android)
+*Supports Android 8.0 (Oreo / API 26) through Android 16+.*
 
-1. **Download the Alpha APK (v0.9.2-alpha)**:
-   - Download the latest signed APK from the app page: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
-   - **Coming from an earlier test build?** One time only: in the old app go to **Settings → Export Backup**, uninstall it, install 0.9.2, then **Settings → Restore Backup**. (0.9.2 is the first signed release, and Android won't install it over a test build.)
+1. **Join the Closed Testing Group**:
+   - Ensure your Google Account email is registered on our Google Play Closed Testing list. If you haven't received an invite, email `michael.eger@michaelegerconsulting.com`.
+2. **Accept the Testing Invitation**:
+   - **Web Opt-In Link**: Open **[Google Play Testing Opt-In](https://play.google.com/apps/testing/com.eagertolisten.app)** in your browser and click **"Become a tester"**.
+   - **Direct Google Play Store Link**: Once opted in, open **[Eager to Listen on Google Play](https://play.google.com/store/apps/details?id=com.eagertolisten.app)** on your Android phone to download or update.
+3. **Automatic Updates & Google Play Protect**:
+   - Google Play will automatically update your app whenever a new test build or fix is pushed. All builds are cryptographically verified by Google Play Protect.
+4. **Submitting Private Feedback in Google Play**:
+   - While on the Closed Testing track, you can leave feedback directly on the Google Play store page. **Closed testing reviews are private**—they do not affect public app store ratings and are seen only by the development team.
+
+### Option B: Direct APK Sideload (v0.9.3-alpha)
+*For testers without Google Play Services or those who prefer direct manual installation.*
+
+1. **Download the Signed APK (v0.9.3-alpha)**:
+   - Download the latest signed APK from the official app page: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
+   - Or install via ADB:
+     ```bash
+     adb install -r app-debug.apk
+     ```
 2. **Enable Unknown Apps**:
-   - When opening the APK on your device, allow your browser or file manager permission to *"Install unknown apps"* if prompted.
-3. **Launch Eager to Listen**:
-   - Open the app from your home screen or app drawer.
-4. **Import or Export Your Feeds (OPML / Backup)**:
-   - Go to **Settings** ➔ **Import Subscriptions (Backup / OPML)** to instantly import your subscriptions and history.
-   - You can also tap **Export Subscriptions (OPML)** to export your full catalog at any time.
-   - Or tap **Discover** to search for shows or paste any direct RSS feed URL!
+   - If prompted by Android, grant your browser or file manager permission to *"Install unknown apps"*.
+3. **Launch & Verify**:
+   - Open Eager to Listen, go to **Settings → About**, and confirm Database Version 8 is shown.
 
-### Option B: Web Player & Progressive Web App (PWA)
+### Option C: Web Player & Progressive Web App (PWA)
 *Runs on Chrome, Firefox, Safari, Edge across Windows, macOS, Linux, and iOS.*
 
 1. **Open the Web Player**:
@@ -114,31 +126,49 @@ To make testing fun and effective, we've broken the experience into 5 focused mi
 - [ ] Test playback with Bluetooth headphones or Android Auto / car head units.
 - [ ] Observe battery usage: Does the app drain excessive battery during background playback?
 
+### 🔗 Mission 6: Universal Links & System Share Sheet
+- [ ] Tap any podcast link (`feed://`, `podcast://`, `pcast://`, `itpc://`, or direct RSS/Atom URL) from a browser or messaging app: Verify it opens the **Add show** sheet.
+- [ ] Verify the Add show sheet displays podcast artwork, total episode count, latest episode date, and defaults to **P2 (Priority 2)**.
+- [ ] Share a podcast URL from Chrome or another app using the Android system Share menu: Choose **Add show to Eager to Listen** and verify the preview sheet opens.
+- [ ] Paste a feed URL or Apple Podcasts link into **Discover ➔ Search** or the **Add by link** box.
+- [ ] Open a downloaded `.rss` / feed file from your device's **Files** or **Downloads** app: Confirm Eager to Listen opens the Add show sheet cleanly.
+
+### 🔎 Mission 7: Unified Directory Search (Apple Podcasts + Podcast Index)
+- [ ] Search for popular shows (e.g., `Huberman Lab`, `No Agenda`, `Eager to be Healthy`) in **Discover**: Verify each show appears **once** (no duplicates), with a **Latest <date>** line and clear source attribution badge.
+- [ ] Search for a brand-new podcast launched in the last 60 days: Confirm it is successfully found and imported via the merged search pipeline.
+- [ ] Browse categories (e.g. News, Health & Fitness): Verify featured shows pin at the top and category results populate quickly.
+
+### 🛡️ Mission 8: Playback Error Recovery & Offline Dead Zones
+- [ ] Enter a dead zone or enable Airplane Mode while streaming: Verify the player pauses and waits for the connection to return instead of skipping past episodes in your queue.
+- [ ] Test background download fallback: If a downloaded audio file is interrupted or deleted, verify playback smoothly falls back to online streaming at your exact saved position.
+- [ ] If an episode source link has moved or redirects, verify the coordinator re-checks the RSS feed for the updated link before advancing.
+
+### 📊 Mission 9: About Screen, Database v8 & Inspiration Studio
+- [ ] Open **Settings ➔ About**: Verify the build displays **Version 0.9.3-alpha (Build 12)** and **Database Version 8**.
+- [ ] Test **Creator Inspiration Studio** (via Queue header chip or Settings):
+  - Tap the Bookmark star during playback to capture a thought.
+  - Verify the bookmark captures 15s prior to the tap with transcript cues.
+  - Tap **Share all** to export Markdown notes.
+  - Verify bookmarks are safely archived to `eagertolisten_bookmarks.jsonl` in your Google Drive sync folder.
+- [ ] Check **Settings ➔ Playback problems**: Inspect logged playback diagnostics (confirm private feed credentials and API keys are properly redacted).
+
 ---
 
 ## 🐛 How to Report Bugs & Give Feedback
 
 We value your honesty! If something looks off, crashes, feels clunky, or could be faster, we want to know.
 
-### Bug Report Template
-When reporting an issue, please include:
-```markdown
-**Summary**: Brief 1-line description of the bug
-**Device & OS**: e.g., Google Pixel 10 running Android 15 (or Windows 11 Chrome)
-**App Version**: e.g., Alpha 1.0 (Build 4)
-**Podcast / Episode**: Name of the podcast or RSS feed URL
-**Steps to Reproduce**:
-1. Open...
-2. Tap on...
-3. Observe that...
-**Expected Behavior**: What you expected to happen
-**Actual Behavior**: What actually happened (or crash message)
-**Screenshots / Screen Recordings**: (Optional, but super helpful!)
-```
+### 1. Google Play Console Private Feedback (Closed Testing)
+If you installed via the **Google Play Closed Testing track**, you can submit feedback directly from the app's Google Play store page or in response to test notifications.
+*Note: Closed testing reviews are private and only visible to the Eager to Listen development team.*
 
-### Feedback Channels
+### 2. In-App Feedback & Diagnostics
+- Go to **Settings ➔ Send Alpha Feedback Email** to automatically generate a pre-formatted email with device specs and non-sensitive diagnostics attached.
+- If an unhandled crash or playback error occurs, the app will offer an **Email Crash & Playback Error Report** dialog. You have full control to inspect and edit the log before sending.
+
+### 3. Direct Community & Tracker
 - 💬 **Discord / Community Chat**: [Join our Alpha Testers Channel]
-- 🐙 **GitHub Issue Tracker**: File bugs directly on our repository issue tracker
+- 🐙 **GitHub Issue Tracker**: [github.com/michaeleger/eager-to-listen/issues](https://github.com/michaeleger/eager-to-listen/issues)
 - 📧 **Direct Developer Email**: `michael.eger@michaelegerconsulting.com`
 
 ---

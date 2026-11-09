@@ -1,0 +1,6 @@
+• Open podcast & RSS links in the app with Add Show preview and P2 default
+• Query Podcast Index and Apple Podcasts simultaneously with merged results
+• Resilient playback error recovery: dead-zone offline waiting and corrupt file streaming fallback
+• Creator Inspiration Studio: capture timestamps, share Markdown notes, permanent Drive archive
+• Android Auto steering wheel media controls & Now Playing queue
+• Room Database Version 8 upgrade with diagnostics sheet

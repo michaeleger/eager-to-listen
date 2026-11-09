@@ -14,21 +14,20 @@
 ## 📢 Calling Alpha Testers!
 Are you looking for a podcast player that actually manages your queue automatically instead of making you swipe and reorder dozens of episodes every day?
 
-* 📲 **[Download Eager to Listen (v0.9.2-alpha)](https://eagertobehealthy.com/eager-to-listen)** — Signed Android APKs, install steps and release notes live on the app page. The APK isn't stored in this repository.
+* 📲 **[Download Eager to Listen (v0.9.3-alpha)](https://eagertobehealthy.com/eager-to-listen)** — Signed Android APKs, Google Play testing opt-in, install steps, and release notes live on the app page.
+* 🤖 **[F-Droid Build Setup (FDROID.md)](./FDROID.md)** — F-Droid metadata recipe and reproducible build instructions.
 * ⚡ **[Complete Feature List (FEATURES.md)](./FEATURES.md)** — In-depth breakdown of all feature pillars and engine invariants.
-* 📝 **[Changelog (CHANGELOG.md)](./CHANGELOG.md)** — Version-by-version release history from v0.1.0 to v0.9.2-alpha.
-* 📋 **[Alpha Tester Guide (ALPHA_TESTERS.md)](./ALPHA_TESTERS.md)** — Step-by-step setup, feedback channels, and test scenarios.
+* 📝 **[Changelog (CHANGELOG.md)](./CHANGELOG.md)** — Version-by-version release history from v0.1.0 to v0.9.3-alpha.
+* 📋 **[Google Play & Alpha Tester Guide (ALPHA_TESTERS.md)](./ALPHA_TESTERS.md)** — Google Play Closed Testing guide, feedback channels, and test scenarios.
 * 📊 **[Product Data Sheet (PRODUCT_DATA_SHEET.md)](./PRODUCT_DATA_SHEET.md)** — Full technical specifications.
 * 🌐 **[Interactive Product Website (product-info.html)](./public/product-info.html)** — Comprehensive landing page with screenshots and feature breakdowns.
 
-### 🆕 What's new in 0.9.2-alpha
-* **Car-friendly again**: steering-wheel and headset Next/Previous jump within the episode (+90s / -15s by default) instead of skipping it, with a setting to switch back. Android Auto's "Up next" shows your whole queue.
-* **Your skip times**: rewind and forward from 10 to 90 seconds each.
-* **Bring your shows**: full-history imports from Podcast Addict backups and AntennaPod database exports, plus OPML from Podverse, Pocket Casts, Castbox or anything else.
-* **Local folder shows**: play a folder of archived MP3s like a podcast. Your files are never changed or deleted.
-* **Mark played / unplayed**, plus "mark this & older as played" for catching up after an import.
-* **No duplicate shows**, matched by feed address or Podcasting 2.0 `<podcast:guid>`.
-* **Crash reports you control**: after a crash the app offers to email the report, and nothing is sent unless you tap Send.
+### 🆕 What's new in 0.9.3-alpha
+* **Open podcast and RSS links in the app**: `feed://`, `podcast://`, `pcast://`, `itpc://`, RSS/Atom links, "Subscribe on Android" buttons, and downloaded `.rss` feed files open an Add Show preview sheet with P2 default.
+* **Unified parallel search**: Podcast Index and Apple Podcasts are queried simultaneously and merged with duplicates collapsed, latest episode dates, and source attribution badges.
+* **Resilient playback recovery**: streaming dead zones wait for signal return instead of skipping episodes; corrupt downloads transparently fall back to streaming at your exact spot; moved RSS links are re-read.
+* **Creator Inspiration Studio**: bookmark moments (-15s), export Markdown summaries, and maintain a permanent archive in Google Drive (`eagertolisten_bookmarks.jsonl`).
+* **Database Version 8**: Room database migration 7→8 upgrading in place.
 
 Full details: **[CHANGELOG.md](./CHANGELOG.md)**. Download: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**.
 

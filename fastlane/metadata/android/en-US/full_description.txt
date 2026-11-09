@@ -1,0 +1,29 @@
+Eager to Listen is an open-standards, privacy-first podcast player designed for daily commuters, serial learners, and audio power-users who want complete control over how their audio is scheduled.
+
+Featuring the Curated Airwaves™ Engine (Radio U), Eager to Listen acts like your own personal public radio station, programming your day's listening with smart priority weighting and anti-binge fair rotation so no single show hijacks your queue.
+
+Key Features:
+
+📻 Curated Airwaves™ Engine (Radio U)
+• 5-Tier Priority Matrix (P1 to P5): Critical daily news automatically leapfrogs casual weekend banter.
+• Hot List: Instant one-tap access to all unplayed episodes from your Priority 1 feeds.
+• 4 Autonomous Play Order Strategies: Chronological (serials/audio courses), Reverse Chronological (episodic), News (rolling retention window purging stale news), and Evergreen (balanced back-catalog interleaving).
+• Per-Feed Customization: Tailor intro/outro skip times and per-show playback speeds.
+
+🚀 Native Podcasting 2.0 Superpowers
+• Synchronized Interactive Transcripts: Real-time word-by-word highlighted transcripts (SRT, WebVTT, JSON) with tap-to-seek and live text search.
+• Rich Chapters with Artwork: Jump directly to topics with embedded chapter artwork and external reference links.
+• Live Stream Detection: Real-time LIVE NOW indicators with 1-tap stream tuning.
+• Person & Guest Tags: View speaker profiles, co-hosts, and roles.
+
+⚡ Creator Support & Value for Value
+• Direct Funding: 1-tap support via creator-chosen donation channels (PayPal, Stripe, Patreon, Buy Me a Coffee).
+• Lightning Boostagrams: Send satoshi boosts with custom notes and interactive recipient splits to creators.
+
+🚗 Built for the Car & Commuting
+• Android Auto Media Library: Browse Pending Playlists, Hot List, Daily News, and Subscribed Shows directly from your vehicle console.
+• Steering-Wheel Controls: Dedicated skip backward (-15s) and forward (+90s) controls.
+
+🔒 Privacy-First Zero-Server Cloud Sync
+• Sync your subscriptions, queue state, and progress across Android, Desktop, and Web using your personal Google Drive AppData folder.
+• No ads, no third-party tracking databases, no telemetry selling your listening habits.

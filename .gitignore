@@ -43,6 +43,8 @@ eager_local.db
 *.apk
 *.aab
 *.mp4
+*.rss
+shots/
 android/app/release/
 public/*.apk
 website_update_package/
