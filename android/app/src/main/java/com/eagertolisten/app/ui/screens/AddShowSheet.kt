@@ -192,6 +192,8 @@ private fun PreviewBody(
         return
     }
 
+    // Following again keeps the show's own settings, priority included, so there's nothing to pick
+    if (preview.existing == null) {
     Text("Priority", color = TextPrimary, style = MaterialTheme.typography.labelLarge)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         (1..5).forEach { p ->
@@ -227,6 +229,7 @@ private fun PreviewBody(
         color = TextMuted,
         style = MaterialTheme.typography.bodySmall
     )
+    }
 
     Spacer(Modifier.height(2.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -244,7 +247,7 @@ private fun PreviewBody(
         OutlinedButton(onClick = onClose, enabled = !busy) { Text("Not now", color = TextPrimary) }
     }
     if (preview.existing != null) {
-        Text("You followed this before. Following again keeps its history and settings.", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+        Text("You followed this before. Following again keeps its history and settings (priority ${preview.existing.priority}).", color = TextMuted, style = MaterialTheme.typography.bodySmall)
     }
 }
 

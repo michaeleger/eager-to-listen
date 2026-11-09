@@ -282,11 +282,15 @@ function viewAddShowCard() {
     ${
       following
         ? `<p>You already follow this show.</p><div class="row-actions"><button class="btn small" data-action="open-show" data-id="${esc(p.existing.id)}">Open it</button>${close}</div>`
-        : `<p class="sub" style="margin-bottom:4px">Priority</p>
+        : `${
+            p.existing
+              ? ''
+              : `<p class="sub" style="margin-bottom:4px">Priority</p>
            <div class="row-actions prio">${[1, 2, 3, 4, 5].map((n) => `<button class="${n === a.priority ? 'btn' : 'ghost'} small" data-action="add-show-priority" data-p="${n}" ${a.status === 'subscribing' ? 'disabled' : ''}>P${n}</button>`).join('')}</div>
-           <p class="sub">${PRIORITY_HELP[a.priority]}</p>
+           <p class="sub">${PRIORITY_HELP[a.priority]}</p>`
+          }
            <div class="row-actions"><button class="btn" data-action="add-show-subscribe" ${a.status === 'subscribing' ? 'disabled' : ''}>${a.status === 'subscribing' ? 'Subscribing…' : p.existing ? 'Follow again' : 'Subscribe'}</button>${close}</div>
-           ${p.existing ? '<p class="sub">You followed this before. Following again keeps its history and settings.</p>' : ''}`
+           ${p.existing ? `<p class="sub">You followed this before. Following again keeps its history and settings (priority ${esc(String(p.existing.priority ?? 3))}).</p>` : ''}`
     }
   </div>`;
 }
