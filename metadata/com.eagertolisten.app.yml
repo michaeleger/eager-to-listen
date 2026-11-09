@@ -18,7 +18,7 @@ CurrentVersionCode: 12
 Builds:
   - versionName: 0.9.3-alpha
     versionCode: 12
-    commit: d33a8bba77b913686bc900d66ebcb556e86caf30
+    commit: v0.9.3-alpha
     subdir: android
     gradle:
       - yes
