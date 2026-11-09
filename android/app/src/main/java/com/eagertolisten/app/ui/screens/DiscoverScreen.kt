@@ -184,7 +184,7 @@ fun DiscoverScreen(
                             Icon(imageVector = Icons.Default.RssFeed, contentDescription = null, tint = BurntOrange, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Subscribe via Direct RSS URL",
+                                text = "Add by link: feed, Apple Podcasts, or the show's website",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = TextPrimary
                             )
@@ -194,7 +194,7 @@ fun DiscoverScreen(
                             OutlinedTextField(
                                 value = directRssUrl,
                                 onValueChange = { directRssUrl = it },
-                                placeholder = { Text("https://example.com/rss.xml", color = TextMuted, fontSize = 12.sp) },
+                                placeholder = { Text("https://example.com/feed.xml", color = TextMuted, fontSize = 12.sp) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 shape = RoundedCornerShape(8.dp),
@@ -209,7 +209,8 @@ fun DiscoverScreen(
                             Button(
                                 onClick = {
                                     if (directRssUrl.isNotBlank()) {
-                                        feedViewModel.subscribe(directRssUrl.trim())
+                                        // Same Add show sheet as links opened from other apps: preview, pick a priority
+                                        feedViewModel.openAddShow(directRssUrl.trim())
                                         directRssUrl = ""
                                     }
                                 },
@@ -279,6 +280,22 @@ fun DiscoverScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                // Where it was found and how fresh it is, so a stale directory entry stands out
+                                val freshness = buildList {
+                                    if (result.newestEpisodeAt > 0) {
+                                        add("Latest " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(result.newestEpisodeAt)))
+                                    }
+                                    if (result.source.isNotBlank()) add(result.source)
+                                }.joinToString(" · ")
+                                if (freshness.isNotEmpty()) {
+                                    Text(
+                                        text = freshness,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(8.dp))

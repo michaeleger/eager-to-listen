@@ -188,6 +188,79 @@ class PodcastRepository(context: Context) {
         }
     }
 
+    /**
+     * Look at a link before subscribing: a feed, a feed:/podcast:/itpc: link, an Apple Podcasts or
+     * Overcast show link, or a show's web page (its advertised feed is used). Fetches and parses the
+     * feed so the Add show sheet can show what it is and whether it's already here.
+     */
+    suspend fun previewFeedLink(input: String): Result<com.eagertolisten.app.data.model.FeedPreview> = withContext(Dispatchers.IO) {
+        try {
+            val target = com.eagertolisten.app.data.model.FeedLink.resolve(input)
+            val (url, guessed) = when (target) {
+                is com.eagertolisten.app.data.model.FeedLink.Target.Feed -> target.url to target.schemeGuessed
+                is com.eagertolisten.app.data.model.FeedLink.Target.Apple -> {
+                    val hit = com.eagertolisten.app.data.podcastindex.PodcastIndexClient(appContext).lookupAppleFeed(target.id)
+                        ?: return@withContext Result.failure(Exception("Apple Podcasts doesn't list a feed for that show"))
+                    hit.feedUrl to false
+                }
+                else -> return@withContext Result.failure(Exception("That isn't a podcast link"))
+            }
+            Result.success(fetchPreview(url, guessed, followPage = true))
+        } catch (e: Exception) {
+            Log.w("PodcastRepository", "Preview failed for $input: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun fetchPreview(url: String, schemeGuessed: Boolean, followPage: Boolean): com.eagertolisten.app.data.model.FeedPreview {
+        val (bytes, contentType) = try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", ACCEPT_HEADER)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code} (${response.message})")
+                val body = response.body?.bytes() ?: throw java.io.IOException("Empty body from server")
+                body to response.header("Content-Type").orEmpty()
+            }
+        } catch (e: java.io.IOException) {
+            // feed://, podcast:// and itpc:// links don't say https or http: try http if https fails
+            val http = if (schemeGuessed) com.eagertolisten.app.data.model.FeedLink.httpFallback(url) else null
+            if (http != null) return fetchPreview(http, schemeGuessed = false, followPage = followPage)
+            throw e
+        }
+        // Sniff the start as Latin-1 (any byte decodes) so the feed itself is still parsed from raw bytes
+        val head = String(bytes, 0, minOf(bytes.size, 4096), Charsets.ISO_8859_1)
+        if (com.eagertolisten.app.data.model.FeedLink.looksLikeHtml(head, contentType)) {
+            val links = if (followPage) {
+                com.eagertolisten.app.data.model.FeedLink.discoverFeedLinks(String(bytes, Charsets.UTF_8), url)
+            } else {
+                emptyList()
+            }
+            val first = links.firstOrNull() ?: throw Exception("That's a web page with no podcast feed on it")
+            return fetchPreview(first, schemeGuessed = false, followPage = false)
+        }
+        val feedUrl = com.eagertolisten.app.data.model.FeedUrl.normalize(url).ifBlank { url }
+        val parsed = feedParser.parse(bytes.inputStream(), feedUrl, podcastId = feedUrl)
+        val allShows = podcastDao.getAllPodcastsIncludingUnsubscribedSync()
+        val candidates = allShows.map { com.eagertolisten.app.data.model.ShowMatcher.Candidate(it.id, it.feedUrl, it.podcastGuid) }
+        val existing = (com.eagertolisten.app.data.model.ShowMatcher.findMatch(candidates, feedUrl)
+            ?: com.eagertolisten.app.data.model.ShowMatcher.findMatch(candidates, "", parsed.podcast.podcastGuid))
+            ?.let { c -> allShows.firstOrNull { it.id == c.id } }
+        return com.eagertolisten.app.data.model.FeedPreview(
+            feedUrl = feedUrl,
+            title = parsed.podcast.title,
+            author = parsed.podcast.author,
+            artworkUrl = parsed.podcast.artworkUrl,
+            description = parsed.podcast.description,
+            episodeCount = parsed.episodes.size,
+            newestEpisodeAt = parsed.episodes.maxOfOrNull { it.publishedAt } ?: 0L,
+            existing = existing
+        )
+    }
+
     private suspend fun refreshFeedInternal(podcast: Podcast): Result<Unit> {
         // Local folder shows have no feed to fetch: refreshing rescans the folder.
         if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(podcast.feedUrl)) {

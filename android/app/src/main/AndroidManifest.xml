@@ -36,12 +36,73 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
+            <!-- Podcast and RSS links: feed://, podcast://, pcast://, itpc:// (and feed:https://...).
+                 Opens Add show (FeedLink, AddShowSheet). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="feed" />
+                <data android:scheme="podcast" />
+                <data android:scheme="pcast" />
+                <data android:scheme="itpc" />
+            </intent-filter>
+
+            <!-- RSS and Atom feeds opened from a browser, email or file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:mimeType="application/rss+xml" />
+                <data android:mimeType="application/atom+xml" />
+                <data android:mimeType="application/x-rss+xml" />
+            </intent-filter>
+
+            <!-- A feed file opened from Downloads, Files or an email attachment -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/rss+xml" />
+                <data android:mimeType="application/atom+xml" />
+                <data android:mimeType="application/x-rss+xml" />
+            </intent-filter>
+
+            <!-- "Subscribe on Android" buttons on podcast websites, and Apple Podcasts show links.
+                 Android 12+ only offers the app for these once you allow it under
+                 App info > Open by default; sharing the link to the app always works. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="subscribeonandroid.com" />
+                <data android:host="www.subscribeonandroid.com" />
+                <data android:host="podcasts.apple.com" />
+            </intent-filter>
+
             <!-- App Actions Built-In Intents (BII) for Gemini / Google Assistant -->
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
 
         </activity>
+
+        <!-- Share a podcast link (feed, Apple Podcasts, a show's web page) to the app -->
+        <activity-alias
+            android:name=".AddShowShareTarget"
+            android:targetActivity=".MainActivity"
+            android:label="@string/share_add_show"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"

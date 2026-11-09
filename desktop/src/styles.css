@@ -141,3 +141,10 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-size:
 .bookmark .note-form textarea { resize: vertical; }
 .excerpt { margin: 8px 0 0; padding: 6px 12px; border-left: 3px solid var(--green); color: var(--text-2); font-size: 13.5px; max-height: 7.5em; overflow: auto; }
 .card textarea[readonly] { width: 100%; resize: vertical; margin-top: 8px; }
+
+/* Add show (links opened, pasted or passed in) */
+.card.addshow { border: 1px solid var(--accent, #eb5e17); }
+.card.addshow h2 { margin-top: 0; }
+.sub.mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+.sub.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.row-actions.prio .small { min-width: 44px; }

@@ -9,6 +9,8 @@ import { STRATEGY_LABELS } from './core/queueEngine.js';
 import * as B from './core/bookmarks.js';
 import { parseTranscript } from './core/transcript.js';
 import * as R from './core/playbackRecovery.js';
+import * as S from './core/showSearch.js';
+import { resolveLink, httpFallback, looksLikeHtml, discoverFeedLinks, LINK_DEFAULT_PRIORITY } from './core/feedLink.js';
 
 // Show unexpected errors in the window instead of failing silently
 function showFatal(msg) {
@@ -158,17 +160,17 @@ async function refreshAll({ quiet = false } = {}) {
   if (!quiet || added) toast(added ? `${added} new episode${added === 1 ? '' : 's'}` : 'No new episodes');
 }
 
-async function subscribe(rawUrl) {
+async function subscribe(rawUrl, { priority = null, prefetched = null } = {}) {
   const url = normalize(rawUrl) || rawUrl.trim();
   if (!/^https?:\/\//i.test(url)) return toast('Paste the full feed address, starting with https://');
-  const existing = Object.values(state.lib.podcasts).find((p) => sameFeed(p.feedUrl, url) || sameFeed(p.id, url));
+  const existing = prefetched?.existing ?? Object.values(state.lib.podcasts).find((p) => sameFeed(p.feedUrl, url) || sameFeed(p.id, url));
   if (existing && existing.unsubscribedAt == null) {
     toast(`You already follow ${existing.title}.`);
     return openShow(existing.id);
   }
-  toast('Fetching the feed…');
+  if (!prefetched) toast('Fetching the feed…');
   try {
-    const r = await fetchAndParse(url, existing?.id ?? url);
+    const r = prefetched ? { parsed: parseFeed(prefetched.body, existing?.id ?? url), etag: prefetched.etag, lastModified: prefetched.lastModified } : await fetchAndParse(url, existing?.id ?? url);
     const now = Date.now();
     if (existing) {
       existing.unsubscribedAt = null;
@@ -178,6 +180,7 @@ async function subscribe(rawUrl) {
         id: url,
         feedUrl: url,
         ...r.parsed.podcast,
+        ...(priority ? { priority } : {}),
         subscribedAt: now,
         // 0 so a phone that already follows this show keeps its own rules on the first sync
         settingsUpdatedAt: 0,
@@ -190,11 +193,102 @@ async function subscribe(rawUrl) {
     L.rebuildQueue(state.lib, { nowPlayingId: activeId() });
     persist();
     syncSoon();
-    toast(`Subscribed to ${state.lib.podcasts[id].title}`);
+    toast(existing ? `Following ${state.lib.podcasts[id].title} again (history and settings kept)` : `Subscribed to ${state.lib.podcasts[id].title}${priority ? ` at priority ${priority}` : ''}`);
     openShow(id);
   } catch (e) {
     toast(String(e.message || e), 6000);
   }
+}
+
+// ---------- Add show: podcast/RSS links opened, pasted or passed in (core/feedLink.js) ----------
+// Shows what the feed is, then subscribes at the priority picked (2 unless changed), like the phone.
+
+async function openAddShow(link) {
+  state.view = 'add';
+  state.addShow = { link, status: 'loading', priority: LINK_DEFAULT_PRIORITY };
+  render();
+  try {
+    const preview = await previewLink(link);
+    if (state.addShow?.link !== link) return;
+    state.addShow = { ...state.addShow, status: 'ready', preview };
+  } catch (e) {
+    if (state.addShow?.link !== link) return;
+    state.addShow = { ...state.addShow, status: 'failed', message: String(e.message || e) };
+  }
+  render();
+}
+
+async function previewLink(link) {
+  const t = resolveLink(link);
+  if (t.kind === 'feed') return fetchPreview(t.url, t.schemeGuessed, true);
+  if (t.kind === 'apple') {
+    const hit = await appleLookup(t.id);
+    if (!hit) throw new Error("Apple Podcasts doesn't list a feed for that show.");
+    return fetchPreview(hit.feedUrl, false, true);
+  }
+  throw new Error("That isn't a podcast link.");
+}
+
+async function fetchPreview(url, schemeGuessed, followPage) {
+  let res;
+  try {
+    res = await invoke('fetch_text', { url, etag: null, lastModified: null });
+    if (res.status >= 400) throw new Error(`The feed returned an error (${res.status}).`);
+  } catch (e) {
+    // feed://, podcast:// and itpc:// links don't say https or http: try http if https fails
+    const http = schemeGuessed ? httpFallback(url) : null;
+    if (http) return fetchPreview(http, false, followPage);
+    throw e;
+  }
+  if (looksLikeHtml(res.body, res.contentType || '')) {
+    const links = followPage ? discoverFeedLinks(res.body, res.finalUrl || url) : [];
+    if (!links.length) throw new Error("That's a web page with no podcast feed on it.");
+    return fetchPreview(links[0], false, false);
+  }
+  const feedUrl = normalize(url) || url;
+  const parsed = parseFeed(res.body, feedUrl);
+  const guid = parsed.podcast.podcastGuid;
+  const existing = Object.values(state.lib.podcasts).find(
+    (p) => sameFeed(p.feedUrl, feedUrl) || sameFeed(p.id, feedUrl) || (guid && p.podcastGuid && p.podcastGuid.toLowerCase() === guid.toLowerCase()),
+  );
+  const newest = Math.max(0, ...parsed.episodes.map((e) => e.publishedAt || 0));
+  return { feedUrl, podcast: parsed.podcast, episodeCount: parsed.episodes.length, newestEpisodeAt: newest, existing, body: res.body, etag: res.etag, lastModified: res.lastModified };
+}
+
+const PRIORITY_HELP = { 1: 'Highest: new episodes go straight to the Hot List', 2: 'High: near the top of Radio U', 3: 'Normal', 4: 'Low', 5: 'Lowest: background listening' };
+
+function viewAddShowCard() {
+  const a = state.addShow;
+  if (!a) return '';
+  const close = '<button class="ghost small" data-action="add-show-cancel">Not now</button>';
+  if (a.status === 'loading') return `<div class="card addshow"><h2>Add show</h2><p class="sub">Reading the feed…</p><p class="sub mono">${esc(a.link)}</p></div>`;
+  if (a.status === 'failed') {
+    return `<div class="card addshow"><h2>Add show</h2><p>${esc(a.message)}</p><p class="sub mono">${esc(a.link)}</p>
+      <div class="row-actions"><button class="btn small" data-action="add-show-retry">Try again</button>${close}</div></div>`;
+  }
+  const p = a.preview;
+  const following = p.existing && p.existing.unsubscribedAt == null;
+  const latest = p.newestEpisodeAt ? ` · latest ${new Date(p.newestEpisodeAt).toLocaleDateString()}` : '';
+  const desc = String(p.podcast.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return `<div class="card addshow">
+    <h2>Add show</h2>
+    <div class="item" style="grid-template-columns:76px 1fr;background:none;padding:0">
+      <img src="${art(p.podcast.artworkUrl)}" alt="" style="width:76px;height:76px" />
+      <div class="meta"><div class="title">${esc(p.podcast.title || 'Untitled show')}</div>
+        <div class="line2">${esc(p.podcast.author || '')}</div>
+        <div class="line2">${p.episodeCount} episode${p.episodeCount === 1 ? '' : 's'}${latest}</div></div>
+    </div>
+    ${desc ? `<p class="sub clamp">${esc(desc.slice(0, 400))}${desc.length > 400 ? '…' : ''}</p>` : ''}
+    ${
+      following
+        ? `<p>You already follow this show.</p><div class="row-actions"><button class="btn small" data-action="open-show" data-id="${esc(p.existing.id)}">Open it</button>${close}</div>`
+        : `<p class="sub" style="margin-bottom:4px">Priority</p>
+           <div class="row-actions prio">${[1, 2, 3, 4, 5].map((n) => `<button class="${n === a.priority ? 'btn' : 'ghost'} small" data-action="add-show-priority" data-p="${n}" ${a.status === 'subscribing' ? 'disabled' : ''}>P${n}</button>`).join('')}</div>
+           <p class="sub">${PRIORITY_HELP[a.priority]}</p>
+           <div class="row-actions"><button class="btn" data-action="add-show-subscribe" ${a.status === 'subscribing' ? 'disabled' : ''}>${a.status === 'subscribing' ? 'Subscribing…' : p.existing ? 'Follow again' : 'Subscribe'}</button>${close}</div>
+           ${p.existing ? '<p class="sub">You followed this before. Following again keeps its history and settings.</p>' : ''}`
+    }
+  </div>`;
 }
 
 // Same featured shows the phone shows on Discover (PodcastIndexClient.PROMOTED_PODCASTS)
@@ -211,50 +305,52 @@ const hasPodcastIndex = () => !!(state.lib.settings.podcastIndexKey && state.lib
 
 async function podcastIndex(path) {
   const body = await invoke('podcastindex_get', { path, apiKey: state.lib.settings.podcastIndexKey, apiSecret: state.lib.settings.podcastIndexSecret });
-  return (JSON.parse(body).feeds || [])
-    .filter((f) => f.url)
-    .map((f) => ({ title: f.title || 'Untitled', author: f.author || '', feedUrl: f.url, artworkUrl: f.artwork || f.image || '' }));
+  return S.fromPodcastIndex(JSON.parse(body));
 }
 
 async function appleSearch(term) {
-  const url = `https://itunes.apple.com/search?media=podcast&limit=25&term=${encodeURIComponent(term)}`;
+  const url = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=40&term=${encodeURIComponent(term)}`;
   const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
-  return (JSON.parse(res.body).results || [])
-    .filter((r) => r.feedUrl)
-    .map((r) => ({ title: r.collectionName, author: r.artistName, feedUrl: r.feedUrl, artworkUrl: r.artworkUrl100 }));
+  return S.fromApple(JSON.parse(res.body));
 }
 
+async function appleLookup(id) {
+  const url = `https://itunes.apple.com/lookup?entity=podcast&id=${encodeURIComponent(id)}`;
+  const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
+  return S.fromApple(JSON.parse(res.body))[0] || null;
+}
+
+// Podcast Index (with your key) and Apple Podcasts are asked together and merged (core/showSearch.js).
+// One failing never sinks the search; a pasted link opens Add show instead.
 async function searchDirectory(term, { category = null } = {}) {
+  if (!category && resolveLink(term).kind !== 'search') {
+    openAddShow(term);
+    return;
+  }
   state.searchResults = 'loading';
   render();
-  let results = [];
-  let source = '';
-  try {
-    if (hasPodcastIndex()) {
-      try {
-        results = category
-          ? await podcastIndex(`podcasts/bycategory?cat=${encodeURIComponent(category)}&max=30`)
-          : await podcastIndex(`search/byterm?q=${encodeURIComponent(term)}&max=30`);
-        source = 'Podcast Index';
-      } catch (e) {
-        toast(`${e} Using Apple Podcasts instead.`, 6000);
-      }
-    }
-    if (!results.length && !source) {
-      results = await appleSearch(category || term);
-      source = 'Apple Podcasts';
-    }
-    // Pin the house shows on matching searches, as the phone does
-    const q = (category || term).toLowerCase();
-    const pins = [];
-    if (q.includes('no agenda')) pins.push(FEATURED[1]);
-    if (q.includes('eager') || q === 'health' || q.includes('wellness') || q.includes('self help') || q.includes('self-help')) pins.push(FEATURED[0]);
-    state.searchResults = [...pins, ...results.filter((r) => !pins.some((p) => sameFeed(p.feedUrl, r.feedUrl)))];
-    state.searchSource = source;
-  } catch (e) {
-    state.searchResults = [];
-    toast(`Search failed: ${e}`);
-  }
+  const failed = [];
+  const safely = (name, p) => p.catch((e) => {
+    failed.push(name);
+    console.warn(`${name} search failed:`, e);
+    return [];
+  });
+  const appleTerm = category ? ({ 'Self-Help': 'self help', 'Health & Fitness': 'health wellness' }[category] || category) : term;
+  const [pi, apple] = await Promise.all([
+    hasPodcastIndex()
+      ? safely('Podcast Index', podcastIndex(category ? `podcasts/bycategory?cat=${encodeURIComponent(category)}&max=40` : `search/byterm?q=${encodeURIComponent(term)}&max=40`))
+      : Promise.resolve([]),
+    safely('Apple Podcasts', appleSearch(appleTerm)),
+  ]);
+  const results = S.mergeResults(category ? '' : term, [pi, apple]);
+  // Pin the house shows on matching searches, as the phone does
+  const q = (category || term).toLowerCase();
+  const pins = [];
+  if (q.includes('no agenda') || (category && (q.includes('news') || q.includes('current')))) pins.push(FEATURED[1]);
+  if (q.includes('eager') || q === 'health' || q.includes('wellness') || q.includes('self help') || q.includes('self-help') || (category && (q.includes('health') || q.includes('fitness')))) pins.push(FEATURED[0]);
+  state.searchResults = [...pins, ...results.filter((r) => !pins.some((p) => sameFeed(p.feedUrl, r.feedUrl)))];
+  state.searchSource = [hasPodcastIndex() && !failed.includes('Podcast Index') ? 'Podcast Index' : '', failed.includes('Apple Podcasts') ? '' : 'Apple Podcasts'].filter(Boolean).join(' + ');
+  if (failed.length) toast(`${failed.join(' and ')} didn't answer${results.length ? '; showing the rest' : '. Check your connection'}.`, 6000);
   render();
 }
 
@@ -849,9 +945,10 @@ function viewAdd() {
           : '<p class="sub">Nothing found.</p>'
         : `<h2>Featured</h2>${resultRows(FEATURED)}`;
   return `<h1>Add a show</h1>
-    <p class="sub">${pi ? 'Searching Podcast Index (Podcasting 2.0 directory), with Apple Podcasts as the backup.' : 'Searching Apple Podcasts. Add your Podcast Index key in Settings to search the Podcasting 2.0 directory instead.'}</p>
-    <form class="search" id="searchForm"><input type="search" name="q" placeholder="Search shows" aria-label="Search shows" /><button class="btn">Search</button></form>
-    <form class="search" id="urlForm"><input type="text" name="url" placeholder="https://… feed address (RSS)" aria-label="Feed address" /><button class="ghost">Subscribe</button></form>
+    ${viewAddShowCard()}
+    <p class="sub">${pi ? 'Searches Podcast Index (the Podcasting 2.0 directory) and Apple Podcasts together.' : 'Searches Apple Podcasts. Add your Podcast Index key in Settings to search the Podcasting 2.0 directory too.'} You can also paste a link: a feed, an Apple Podcasts page, or the show's website.</p>
+    <form class="search" id="searchForm"><input type="search" name="q" placeholder="Search shows, or paste a link" aria-label="Search shows" /><button class="btn">Search</button></form>
+    <form class="search" id="urlForm"><input type="text" name="url" placeholder="Feed, Apple Podcasts or website link" aria-label="Show link" /><button class="ghost">Add</button></form>
     ${pi ? `<div class="row-actions">${CATEGORIES.map((c) => `<button class="ghost small" data-action="browse-category" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
     ${results}`;
 }
@@ -1288,6 +1385,28 @@ document.addEventListener('click', (e) => {
       main.scrollTop = 0;
       break;
     }
+    case 'add-show-priority':
+      if (state.addShow) state.addShow.priority = Number(el.dataset.p) || LINK_DEFAULT_PRIORITY;
+      render();
+      break;
+    case 'add-show-cancel':
+      state.addShow = null;
+      render();
+      break;
+    case 'add-show-retry':
+      if (state.addShow) openAddShow(state.addShow.link);
+      break;
+    case 'add-show-subscribe': {
+      const a = state.addShow;
+      if (!a?.preview) break;
+      a.status = 'subscribing';
+      render();
+      subscribe(a.preview.feedUrl, { priority: a.priority, prefetched: a.preview }).finally(() => {
+        if (state.addShow === a) state.addShow = null;
+        render();
+      });
+      break;
+    }
     case 'copy-playback-log': {
       const header = `Eager to Listen desktop playback problems\nDevice: ${lib.deviceId}\nCopied: ${new Date().toISOString()}\nUser agent: ${navigator.userAgent}`;
       copyText(R.formatPlaybackLog(lib.playbackLog, header)).then((ok) => toast(ok ? 'Copied' : "Couldn't copy"));
@@ -1393,7 +1512,7 @@ document.addEventListener('submit', (e) => {
     return;
   }
   if (f.id === 'searchForm' && data.q?.trim()) searchDirectory(data.q.trim());
-  else if (f.id === 'urlForm' && data.url?.trim()) subscribe(data.url.trim());
+  else if (f.id === 'urlForm' && data.url?.trim()) openAddShow(data.url.trim());
   else if (f.id === 'rulesForm') {
     L.updateRules(lib, f.dataset.id, {
       priority: Number(data.priority),

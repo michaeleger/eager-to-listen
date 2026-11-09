@@ -84,6 +84,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         handleVoiceOrSearchIntent(intent)
+        // Not on a restore: the link was already handled before the activity was recreated
+        if (savedInstanceState == null) handleLinkIntent(intent)
 
         // Schedule periodic background updates and backups (default 12 hours)
         val eagerPrefs = getSharedPreferences("eager_settings", android.content.Context.MODE_PRIVATE)
@@ -116,6 +118,9 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = isPlayerExpanded && playbackState.currentEpisode != null) {
                     playerViewModel.setExpanded(false)
                 }
+
+                // Add show: a podcast/RSS link opened, shared or pasted (default priority 2)
+                com.eagertolisten.app.ui.screens.AddShowSheet(feedViewModel)
 
                 // If the app crashed last time, offer to email the saved report to the developer.
                 var pendingCrashReport by remember { mutableStateOf(CrashReporter.pendingReport(applicationContext)) }
@@ -304,6 +309,62 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleVoiceOrSearchIntent(intent)
+        handleLinkIntent(intent)
+    }
+
+    /**
+     * A podcast or RSS link opened in, or shared to, the app: open Add show for it (default
+     * priority 2). See FeedLink for the kinds of links understood.
+     */
+    private fun handleLinkIntent(intent: Intent?) {
+        if (intent == null) return
+        // A feed file opened from Downloads or Files: use the address the feed gives for itself
+        if (intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "content") {
+            val uri = intent.data ?: return
+            lifecycleScope.launch {
+                val xml = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        // The feed's own address sits near the top: the first 256 KB is plenty
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            val buf = ByteArray(256 * 1024)
+                            var n = 0
+                            while (n < buf.size) {
+                                val r = input.read(buf, n, buf.size - n)
+                                if (r < 0) break
+                                n += r
+                            }
+                            String(buf, 0, n, Charsets.UTF_8)
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                val url = com.eagertolisten.app.data.model.FeedLink.feedUrlFromXml(xml)
+                if (url != null) {
+                    androidx.lifecycle.ViewModelProvider(this@MainActivity)[FeedViewModel::class.java].openAddShow(url)
+                } else {
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        "That feed file doesn't say where it lives online. Paste the show's feed link in Add show instead.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            return
+        }
+        val text = when (intent.action) {
+            Intent.ACTION_VIEW -> intent.dataString
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            else -> null
+        } ?: return
+        when (com.eagertolisten.app.data.model.FeedLink.resolve(text)) {
+            is com.eagertolisten.app.data.model.FeedLink.Target.Feed,
+            is com.eagertolisten.app.data.model.FeedLink.Target.Apple ->
+                androidx.lifecycle.ViewModelProvider(this)[FeedViewModel::class.java].openAddShow(text)
+            else -> if (intent.action == Intent.ACTION_SEND) {
+                android.widget.Toast.makeText(this, "That doesn't look like a podcast link", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun handleVoiceOrSearchIntent(intent: Intent?) {

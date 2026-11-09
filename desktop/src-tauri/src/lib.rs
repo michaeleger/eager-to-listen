@@ -86,6 +86,7 @@ struct FetchResult {
     final_url: String,
     etag: Option<String>,
     last_modified: Option<String>,
+    content_type: Option<String>,
 }
 
 fn http_client() -> CmdResult<reqwest::Client> {
@@ -118,6 +119,7 @@ async fn fetch_text(url: String, etag: Option<String>, last_modified: Option<Str
     let header = |h: reqwest::header::HeaderName| resp.headers().get(h).and_then(|v| v.to_str().ok()).map(String::from);
     let etag = header(reqwest::header::ETAG);
     let last_modified = header(reqwest::header::LAST_MODIFIED);
+    let content_type = header(reqwest::header::CONTENT_TYPE);
 
     let mut body = Vec::new();
     let mut stream = resp.bytes_stream();
@@ -128,7 +130,7 @@ async fn fetch_text(url: String, etag: Option<String>, last_modified: Option<Str
         }
         body.extend_from_slice(&chunk);
     }
-    Ok(FetchResult { status, body: String::from_utf8_lossy(&body).into_owned(), final_url, etag, last_modified })
+    Ok(FetchResult { status, body: String::from_utf8_lossy(&body).into_owned(), final_url, etag, last_modified, content_type })
 }
 
 /// Podcast Index API (podcastindex.org), signed the way the Android client signs it:

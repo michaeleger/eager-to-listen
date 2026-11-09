@@ -9,4 +9,5 @@
     <string name="shortcut_eager_to_be_healthy_long">Play Eager to be Healthy</string>
     <string name="shortcut_play_playlist_short">Pending Playlist</string>
     <string name="shortcut_play_playlist_long">Play Pending Playlist on Eager to Listen</string>
+    <string name="share_add_show">Add show to Eager to Listen</string>
 </resources>

@@ -13,6 +13,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Error reports leave out private feed keys.** Premium and private feeds put your access key in the link; links in emailed reports now keep only the address and drop the rest.
 - Listening on past 98% of an already-played episode no longer moves its sync time backward (an older copy from another device could win).
 
+### ➕ Adding shows
+- **Open podcast and RSS links in the app.** `feed://`, `podcast://`, `pcast://` and `itpc://` links, RSS/Atom links, "Subscribe on Android" buttons, and feed files opened from Downloads or Files all open **Add show**. You can also share a link to the app (**Add show to Eager to Listen** in the share menu) or paste one into search. Apple Podcasts and Overcast show links work too (the app looks up the show's feed), and so does a show's website if it lists its feed.
+- **Add show lets you check the show before subscribing.** It shows the artwork, episode count and latest episode date, with priority **P2** picked; change it or tap Subscribe. If you already follow the show it says so, and a show you unfollowed comes back with its history.
+- On Android 12 and later, "Subscribe on Android" and Apple Podcasts web links only open in the app after you allow it under **App info → Open by default**. Sharing the link to the app always works.
+
+### 🔎 Show search
+- **New shows turn up again.** Apple Podcasts used to be searched only when Podcast Index found nothing at all, so a new show that Podcast Index hadn't picked up never appeared. Now both are searched at the same time and the results merged; a show listed in both appears once, using whichever address has the newest episode, and feeds Podcast Index marks dead are left out.
+- One directory being down or offline no longer breaks the search, and search results show the latest episode date and where each result came from, so a stale listing stands out.
+- Same fix on the desktop.
+
 ### 🔄 Sync
 - **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device used to bring it back at the next sync, because the other device still had it. Removals are now remembered and synced, and the newer action wins: pin it again later and it comes back.
 - The sync file gains a `manualQueueRemoved` list. It's an addition, so 0.9.2 still reads new files without trouble.

@@ -25,7 +25,13 @@ data class SearchResult(
     val author: String,
     val feedUrl: String,
     val artworkUrl: String,
-    val genres: List<String>
+    val genres: List<String>,
+    // Used to merge the same show found in more than one directory (ShowSearch)
+    val podcastGuid: String? = null,
+    val appleId: String? = null,
+    val newestEpisodeAt: Long = 0L,
+    val dead: Boolean = false,
+    val source: String = ""
 )
 
 class FeedViewModel(application: Application) : AndroidViewModel(application) {
@@ -91,12 +97,23 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
             _searchResults.value = emptyList()
             return
         }
+        // A pasted link (feed, Apple Podcasts, a show's web page) opens Add show instead of searching
+        if (com.eagertolisten.app.data.model.FeedLink.resolve(query) !is com.eagertolisten.app.data.model.FeedLink.Target.Search) {
+            openAddShow(query)
+            return
+        }
         _selectedCategory.value = null
         viewModelScope.launch {
             _isSearching.value = true
-            val results = podcastIndexClient.search(query.trim())
-            _searchResults.value = results
-            _isSearching.value = false
+            try {
+                val results = podcastIndexClient.search(query.trim())
+                _searchResults.value = results
+                if (results.isEmpty()) _userMessage.value = "No shows found. Check your connection, or paste the show's feed or web page link."
+            } catch (e: Exception) {
+                _userMessage.value = "Search failed: ${e.localizedMessage}"
+            } finally {
+                _isSearching.value = false
+            }
         }
     }
 
@@ -104,9 +121,65 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
         _selectedCategory.value = category
         viewModelScope.launch {
             _isSearching.value = true
-            val results = podcastIndexClient.discoverByCategory(category)
-            _searchResults.value = results
-            _isSearching.value = false
+            try {
+                _searchResults.value = podcastIndexClient.discoverByCategory(category)
+            } catch (e: Exception) {
+                _userMessage.value = "Couldn't load that category: ${e.localizedMessage}"
+            } finally {
+                _isSearching.value = false
+            }
+        }
+    }
+
+    // ---------- Add show: links opened, shared or pasted (default priority 2) ----------
+
+    sealed class AddShowState {
+        object Loading : AddShowState()
+        data class Ready(val preview: com.eagertolisten.app.data.model.FeedPreview) : AddShowState()
+        data class Subscribing(val preview: com.eagertolisten.app.data.model.FeedPreview) : AddShowState()
+        data class Failed(val message: String) : AddShowState()
+    }
+
+    private val _addShowLink = MutableStateFlow<String?>(null)
+    /** The link being added; null when the Add show sheet is closed. */
+    val addShowLink: StateFlow<String?> = _addShowLink.asStateFlow()
+
+    private val _addShowState = MutableStateFlow<AddShowState>(AddShowState.Loading)
+    val addShowState: StateFlow<AddShowState> = _addShowState.asStateFlow()
+
+    private var addShowJob: Job? = null
+
+    fun openAddShow(link: String) {
+        addShowJob?.cancel()
+        _addShowLink.value = link
+        _addShowState.value = AddShowState.Loading
+        addShowJob = viewModelScope.launch {
+            _addShowState.value = repository.previewFeedLink(link).fold(
+                onSuccess = { AddShowState.Ready(it) },
+                onFailure = { AddShowState.Failed(it.message ?: "Couldn't read that feed") }
+            )
+        }
+    }
+
+    fun closeAddShow() {
+        addShowJob?.cancel()
+        _addShowLink.value = null
+    }
+
+    fun subscribeFromPreview(preview: com.eagertolisten.app.data.model.FeedPreview, priority: Int) {
+        addShowJob?.cancel()
+        _addShowState.value = AddShowState.Subscribing(preview)
+        addShowJob = viewModelScope.launch {
+            repository.subscribe(preview.feedUrl, priority).onSuccess {
+                _addShowLink.value = null
+                _userMessage.value = if (preview.existing != null) {
+                    "Following ${it.title} again (your history and settings are kept)"
+                } else {
+                    "Subscribed to ${it.title} at priority $priority"
+                }
+            }.onFailure {
+                _addShowState.value = AddShowState.Failed("Couldn't subscribe: ${it.localizedMessage}")
+            }
         }
     }
 
