@@ -5,11 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [Unreleased]
+## [0.9.4-alpha] - 2026-11-10
 
-Fixes from the November 10 code audit. Not in the 0.9.4-alpha build.
+### ⚡ Faster sync (phone and desktop)
+- **Sync only does the work that's needed.** Before each sync the app checks whether anything changed, on this device or in the Drive folder, since the last one. Nothing changed: it stops there ("Already up to date") without downloading or uploading. Only this device changed: it uploads without downloading first. The folder changed: the full sync as before, but it only uploads again if this device has something the folder doesn't.
+- The bookmark archive is left alone when only listening progress changed.
+- The Sync button always does the full sync, and so does the first automatic sync after 6 hours, as a safety net.
+- **Android: merging is much quicker with a big history.** Episodes are compared in a few batches and saved in one step, instead of one database lookup and one save per episode.
 
-### 📱 Android
+
+### 🛠️ Fixes from the November 10 code audit: Android
 - **Streaming no longer stalls with the screen off.** The player now keeps the phone's processor and Wi-Fi awake while it plays.
 - **One sync at a time.** Leaving the app, the 12-hour update and the Sync button could each start a sync at the same moment and write over each other.
 - **Sync stops instead of overwriting what it can't read.** If the sync file in Drive can't be read (half uploaded, damaged), nothing is changed and you're told to try again; before, it was replaced along with its backup copy. A conflict copy that can't be read is kept instead of deleted.
@@ -17,17 +22,13 @@ Fixes from the November 10 code audit. Not in the 0.9.4-alpha build.
 - A show can only move itself to a new address that is a web address.
 - Feed hosts now see the real app version. Removed an unused file-sharing component and a leftover screen layout.
 
-### 🖥️ Desktop
+### 🛠️ Audit fixes: desktop
 - **Links open again.** Support Show, Episode page and the Podcast Index sign-up link were all blocked by a missing permission.
 - Sync stops, the same as on the phone, when the main sync file can't be read.
 
-### 🧹 Repo
+### 🧹 Audit fixes: repo
 - The old web prototype (`server.js`, `public/`): dependencies updated (12 known vulnerabilities, now 0), Capacitor removed, the feed proxy now listens on this computer only and checks every address at connect time, including redirects.
 - Removed another product's name from code, samples, config and outreach text.
-
----
-
-## [0.9.4-alpha] - 2026-11-10
 
 ### 📦 Open source and F-Droid
 - **Eager to Listen is now free software under the GNU GPL v3.0** (see LICENSE). The app is being submitted to F-Droid.

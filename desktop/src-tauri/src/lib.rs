@@ -314,6 +314,53 @@ async fn sync_list(target: String) -> CmdResult<Vec<String>> {
     target_list(&parse_target(&target)?).await
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileStat {
+    name: String,
+    size: u64,
+    /// Modified time as text; only ever compared for "is it the same as last time"
+    mod_time: String,
+}
+
+/// Name, size and modified time of the files in the sync folder, without opening any of them.
+/// The app compares this with what it saw after its last sync to skip work when nothing changed.
+#[tauri::command]
+async fn sync_stat(target: String) -> CmdResult<Vec<FileStat>> {
+    match parse_target(&target)? {
+        Target::Folder(dir) => {
+            let mut out = Vec::new();
+            let mut rd = tokio::fs::read_dir(&dir).await.map_err(|e| format!("Can't open {}: {e}", dir.display()))?;
+            while let Some(entry) = rd.next_entry().await.map_err(err)? {
+                let meta = entry.metadata().await.map_err(err)?;
+                if !meta.is_file() {
+                    continue;
+                }
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis().to_string())
+                    .unwrap_or_default();
+                out.push(FileStat { name: entry.file_name().to_string_lossy().into_owned(), size: meta.len(), mod_time: modified });
+            }
+            Ok(out)
+        }
+        Target::Rclone(remote) => {
+            let raw = rclone(&["lsjson", "--files-only", "--no-mimetype", "--max-depth", "1", &remote], None).await?;
+            let items: Vec<serde_json::Value> = serde_json::from_slice(&raw).map_err(err)?;
+            Ok(items
+                .into_iter()
+                .map(|it| FileStat {
+                    name: it.get("Name").and_then(|n| n.as_str()).unwrap_or_default().to_string(),
+                    size: it.get("Size").and_then(|s| s.as_u64()).unwrap_or(0),
+                    mod_time: it.get("ModTime").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
+                })
+                .collect())
+        }
+    }
+}
+
 #[tauri::command]
 async fn sync_read(target: String, name: String) -> CmdResult<String> {
     if name.contains('/') || name.contains('\\') {
@@ -628,6 +675,7 @@ pub fn run() {
             save_library,
             fetch_text,
             sync_list,
+            sync_stat,
             sync_read,
             sync_write,
             sync_delete,

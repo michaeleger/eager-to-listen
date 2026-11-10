@@ -47,7 +47,18 @@ class SyncManager(private val context: Context) {
     companion object {
         private val syncMutex = kotlinx.coroutines.sync.Mutex()
         const val SYNC_FILE = "eagertolisten_sync.json"
+        private const val PREF_FP_FOLDER = "fingerprint_folder"
+        private const val PREF_FP_LOCAL = "fingerprint_local"
+        private const val PREF_FP_BOOKMARKS = "fingerprint_bookmarks"
+        private const val PREF_LAST_FULL_WRITE = "last_full_write_timestamp"
     }
+
+    /** Name, size and modified time of the shared files in the sync folder (cheap: no file is opened). */
+    private fun folderFingerprint(files: Array<DocumentFile>): String =
+        SyncFingerprint.ofFolder(
+            files.filter { SyncFingerprint.isSharedFile(it.name) }
+                .map { SyncFingerprint.FileInfo(it.name ?: "", it.length(), it.lastModified()) }
+        )
 
     private val prefs: SharedPreferences = context.getSharedPreferences("eager_sync_prefs", Context.MODE_PRIVATE)
     private val db = EagerDatabase.getInstance(context)
@@ -93,6 +104,8 @@ class SyncManager(private val context: Context) {
             prefs.edit()
                 .putString("sync_folder_uri", uri.toString())
                 .putString("sync_folder_name", displayName)
+                // A different folder: nothing remembered about the old one applies
+                .remove(PREF_FP_FOLDER).remove(PREF_FP_LOCAL).remove(PREF_FP_BOOKMARKS).remove(PREF_LAST_FULL_WRITE)
                 .apply()
 
             _state.value = _state.value.copy(
@@ -128,6 +141,7 @@ class SyncManager(private val context: Context) {
             .remove("sync_folder_uri")
             .remove("sync_folder_name")
             .remove("last_sync_timestamp")
+            .remove(PREF_FP_FOLDER).remove(PREF_FP_LOCAL).remove(PREF_FP_BOOKMARKS).remove(PREF_LAST_FULL_WRITE)
             .apply()
 
         _state.value = SyncState(
@@ -160,13 +174,46 @@ class SyncManager(private val context: Context) {
             val dir = DocumentFile.fromTreeUri(context, treeUri)
                 ?: return@withContext Result.failure(Exception("Unable to access Google Drive sync folder."))
 
-            // 1. Find all sync files (and merge duplicates like eagertolisten_sync (1).json)
+            // 0. Has anything changed, here or in the folder, since the last sync? (SyncFingerprint)
             val allFiles = dir.listFiles()
-            val syncFiles = allFiles.filter { file ->
+            val startedAt = System.currentTimeMillis()
+            val folderNow = folderFingerprint(allFiles)
+            val savedFolder = prefs.getString(PREF_FP_FOLDER, null)
+            val savedLocal = prefs.getString(PREF_FP_LOCAL, null)
+            val savedBookmarks = prefs.getString(PREF_FP_BOOKMARKS, null)
+            val lastFullWriteAt = prefs.getLong(PREF_LAST_FULL_WRITE, 0L)
+            val periodicDue = startedAt - lastFullWriteAt > SyncFingerprint.FULL_SYNC_EVERY_MS || startedAt < lastFullWriteAt
+            val before = SyncSerializer.serializeV2(db, getOrCreateDeviceId(), unpinStore = unpinStore, bookmarkStore = bookmarkStore)
+            val plan = SyncFingerprint.plan(
+                force = isManual,
+                folderNow = folderNow,
+                folderAtLastSync = savedFolder,
+                localNow = SyncFingerprint.ofLocalState(before),
+                localAtLastSync = savedLocal,
+                hasMainFile = allFiles.any { it.name == SYNC_FILE },
+                lastFullSyncAt = lastFullWriteAt,
+                now = startedAt
+            )
+            if (plan == SyncFingerprint.Plan.NOTHING_TO_DO) {
+                val msg = "Already up to date"
+                prefs.edit().putLong("last_sync_timestamp", startedAt).apply()
+                _state.value = _state.value.copy(
+                    status = SyncStatus.CONNECTED,
+                    lastSyncTimestamp = startedAt,
+                    lastSyncSummary = msg,
+                    errorMessage = null
+                )
+                return@withContext Result.success(SyncSummary(0, 0, db.queueDao().getQueueCount(), msg))
+            }
+
+            // 1. Find all sync files (and merge duplicates like eagertolisten_sync (1).json).
+            // When the folder hasn't changed since our last sync there is nothing new in it to read.
+            val syncFiles = if (plan == SyncFingerprint.Plan.WRITE_ONLY) emptyList() else allFiles.filter { file ->
                 val name = file.name ?: ""
                 name.startsWith("eagertolisten_sync") && name.endsWith(".json") &&
                     !name.endsWith(".tmp.json") && !name.endsWith(".bak.json")
             }
+            var mainFileRead = false
 
             var mergedPodcastsTotal = 0
             var mergedEpisodesTotal = 0
@@ -189,6 +236,7 @@ class SyncManager(private val context: Context) {
                             }
                         }
                         readOk = true
+                        if (file.name == SYNC_FILE) mainFileRead = true
                     } ?: throw java.io.IOException("Couldn't open ${file.name}")
                 } catch (e: Exception) {
                     Log.w("SyncManager", "Failed to parse remote sync file: ${file.name}", e)
@@ -220,6 +268,16 @@ class SyncManager(private val context: Context) {
             val exportJson = SyncSerializer.serializeV2(db, getOrCreateDeviceId(), unpinStore = unpinStore, bookmarkStore = bookmarkStore)
             val jsonString = exportJson.toString(2)
 
+            // Nothing new here for the folder? Then the file there already covers this device.
+            val localAfterMerge = SyncFingerprint.ofLocalState(exportJson)
+            val skipWrite = plan == SyncFingerprint.Plan.FULL && SyncFingerprint.canSkipWriteAfterMerge(
+                mustWrite = isManual || periodicDue,
+                mainFileRead = mainFileRead,
+                localAfterMerge = localAfterMerge,
+                localAtLastSync = savedLocal
+            )
+
+            if (!skipWrite) {
             // Write to .tmp.json
             val tmpFile = dir.findFile("eagertolisten_sync.tmp.json")
                 ?: dir.createFile("application/json", "eagertolisten_sync.tmp.json")
@@ -267,17 +325,34 @@ class SyncManager(private val context: Context) {
             try {
                 tmpFile.delete()
             } catch (_: Exception) {}
+            }
 
             // Bookmark archive in the same folder. It never shrinks; a problem here doesn't fail the sync.
-            val archiveNote = try {
+            // (skipped when only listening progress changed: the bookmarks and the folder are as they were)
+            val bookmarksNow = SyncFingerprint.ofBookmarks(exportJson, bookmarkStore.held().size)
+            val archiveUnchanged = plan == SyncFingerprint.Plan.WRITE_ONLY && bookmarksNow == savedBookmarks
+            var archiveOk = true
+            val archiveNote = if (archiveUnchanged) "bookmark archive unchanged" else try {
                 "bookmark archive: ${runBookmarkArchive(dir)} saved"
             } catch (e: Exception) {
                 Log.w("SyncManager", "Bookmark archive failed", e)
+                archiveOk = false
                 "bookmark archive failed: ${e.localizedMessage ?: "unknown error"}"
             }
 
             val now = System.currentTimeMillis()
-            prefs.edit().putLong("last_sync_timestamp", now).apply()
+            // Remember both sides as they are now, so the next pass can tell whether anything changed
+            prefs.edit()
+                .putLong("last_sync_timestamp", now)
+                .putString(PREF_FP_FOLDER, folderFingerprint(dir.listFiles()))
+                .putString(PREF_FP_LOCAL, localAfterMerge)
+                .apply {
+                    // A failed archive pass is tried again next time
+                    if (archiveOk) putString(PREF_FP_BOOKMARKS, SyncFingerprint.ofBookmarks(exportJson, bookmarkStore.held().size))
+                    else remove(PREF_FP_BOOKMARKS)
+                    if (plan == SyncFingerprint.Plan.FULL && !skipWrite) putLong(PREF_LAST_FULL_WRITE, now)
+                }
+                .apply()
 
             val summaryMsg = "Synced $mergedPodcastsTotal podcasts, $mergedEpisodesTotal episodes · $archiveNote"
             _state.value = _state.value.copy(

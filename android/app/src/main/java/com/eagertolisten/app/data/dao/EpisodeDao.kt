@@ -44,8 +44,30 @@ data class EpisodeSyncProjection(
     val updatedAt: Long
 )
 
+/** Just the columns the sync merge compares, so thousands can be loaded at once cheaply. */
+data class EpisodeMergeState(
+    val id: String,
+    val playbackPositionSeconds: Long,
+    val isCompleted: Boolean,
+    val completedAt: Long?,
+    val isDismissed: Boolean,
+    val dismissReason: String?,
+    val skippedAt: Long?,
+    val skipCount: Int,
+    val updatedAt: Long,
+    val durationSeconds: Long
+)
+
 @Dao
 interface EpisodeDao {
+
+    @Query("""
+        SELECT id, playbackPositionSeconds, isCompleted, completedAt, isDismissed, dismissReason, skippedAt, skipCount, updatedAt, durationSeconds
+        FROM episodes
+        WHERE id IN (:ids)
+    """)
+    suspend fun getEpisodeMergeStates(ids: List<String>): List<EpisodeMergeState>
+
     // Episodes whose local-folder file has gone missing are hidden everywhere they're listed.
     @Query("SELECT * FROM episodes WHERE podcastId = :podcastId AND isLive = 0 AND liveStatus IS NULL AND (dismissReason IS NULL OR dismissReason <> 'LOCAL_FILE_MISSING') ORDER BY publishedAt DESC")
     fun getEpisodesForPodcast(podcastId: String): Flow<List<Episode>>

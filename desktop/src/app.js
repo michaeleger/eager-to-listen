@@ -4,7 +4,7 @@
 import * as L from './core/library.js';
 import { normalize, sameFeed } from './core/feedUrl.js';
 import { parseFeed } from './core/feedParser.js';
-import { runSync } from './core/syncRunner.js';
+import { runSync, noteArchiveDone } from './core/syncRunner.js';
 import { STRATEGY_LABELS } from './core/queueEngine.js';
 import * as B from './core/bookmarks.js';
 import { parseTranscript } from './core/transcript.js';
@@ -372,6 +372,8 @@ const syncIo = {
   read: (target, name) => invoke('sync_read', { target, name }),
   write: (target, json) => invoke('sync_write', { target, json }),
   remove: (target, name) => invoke('sync_delete', { target, name }),
+  // Name, size and modified time of the folder's files, to tell whether anything changed
+  stat: (target) => invoke('sync_stat', { target }),
 };
 
 let syncTimer = null;
@@ -397,6 +399,8 @@ async function syncNow({ quiet = false } = {}) {
   try {
     saveProgressNow();
     const res = await runSync(state.lib, syncIo, {
+      // The Sync button always does the full pass; automatic syncs only do what changed
+      force: !quiet,
       // New shows from the phone: load their episodes before the file is written back
       onNewShows: async (ids) => {
         for (const id of ids) {
@@ -406,8 +410,8 @@ async function syncNow({ quiet = false } = {}) {
       },
     });
     state.syncMessage = `${res.message} · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-    L.rebuildQueue(state.lib, { nowPlayingId: activeId() });
-    await archiveNow();
+    if (res.plan !== 'NOTHING_TO_DO') L.rebuildQueue(state.lib, { nowPlayingId: activeId() });
+    if (res.archiveNeeded && (await archiveNow())) await noteArchiveDone(state.lib, syncIo, res.bookmarksFp);
     persist();
     if (!quiet) toast(res.message);
   } catch (e) {

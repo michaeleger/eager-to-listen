@@ -275,3 +275,156 @@ test("Android's float speeds come in clean (1.100000023841858 -> 1.1)", () => {
   const s = parse('{"format":2,"podcasts":[{"id":"f","rules":{"playbackSpeed":1.100000023841858}}]}');
   assert.equal(s.podcasts[0].rules.playbackSpeed, 1.1);
 });
+
+// ---------- skip work when nothing changed (syncFingerprint.js, mirrors SyncFingerprint.kt) ----------
+
+import * as FP from '../src/core/syncFingerprint.js';
+import { noteArchiveDone } from '../src/core/syncRunner.js';
+
+/** A folder that also reports size and modified time, and counts what was read and written. */
+function statFolder(files = {}) {
+  const mod = Object.fromEntries(Object.keys(files).map((n) => [n, 1]));
+  const f = {
+    files,
+    reads: 0,
+    writes: 0,
+    list: async () => Object.keys(files),
+    stat: async () => Object.keys(files).map((name) => ({ name, size: files[name].length, modTime: String(mod[name] || 0) })),
+    read: async (_t, n) => { f.reads++; return files[n]; },
+    write: async (_t, json) => { f.writes++; files['eagertolisten_sync.json'] = json; mod['eagertolisten_sync.json'] = (mod['eagertolisten_sync.json'] || 0) + 1; },
+    remove: async (_t, n) => { delete files[n]; },
+    /** Another device wrote the file */
+    touch: (name, text) => { files[name] = text; mod[name] = (mod[name] || 0) + 1; },
+  };
+  return f;
+}
+
+function pcWith(showId = 'feedS') {
+  const pc = emptyLibrary();
+  pc.deviceId = 'pc-test';
+  pc.settings.syncFolder = '/tmp/sync';
+  pc.podcasts[showId] = pod(showId);
+  pc.episodes[`${showId}::e1`] = epi(`${showId}::e1`, showId, { playbackPositionSeconds: 10, updatedAt: 1000 });
+  return pc;
+}
+
+test('fingerprint plan: nothing changed, only this device changed, anything else', () => {
+  const base = { force: false, folderNow: 'f1', folderAtLastSync: 'f1', localNow: 'l1', localAtLastSync: 'l1', hasMainFile: true, lastFullSyncAt: 1000, now: 2000 };
+  assert.equal(FP.plan(base), 'NOTHING_TO_DO');
+  assert.equal(FP.plan({ ...base, localNow: 'l2' }), 'WRITE_ONLY');
+  assert.equal(FP.plan({ ...base, folderNow: 'f2' }), 'FULL');
+  assert.equal(FP.plan({ ...base, force: true }), 'FULL');
+  assert.equal(FP.plan({ ...base, folderAtLastSync: null }), 'FULL');
+  assert.equal(FP.plan({ ...base, hasMainFile: false }), 'FULL');
+  assert.equal(FP.plan({ ...base, now: 1000 + FP.FULL_SYNC_EVERY_MS + 1 }), 'FULL');
+  assert.equal(FP.plan({ ...base, now: 500 }), 'FULL');
+});
+
+test('folder fingerprint follows shared files only', () => {
+  const a = [{ name: 'eagertolisten_sync.json', size: 10, modTime: 't1' }, { name: 'eagertolisten_bookmarks.jsonl', size: 5, modTime: 't1' }];
+  const fp = FP.ofFolder(a);
+  assert.equal(FP.ofFolder([...a].reverse().concat([{ name: 'eagertolisten_sync.bak.json', size: 1, modTime: 'x' }, { name: 'notes.txt', size: 1, modTime: 'x' }])), fp);
+  assert.notEqual(FP.ofFolder([{ ...a[0], modTime: 't2' }, a[1]]), fp);
+  assert.notEqual(FP.ofFolder([...a, { name: 'eagertolisten_sync (1).json', size: 9, modTime: 't1' }]), fp);
+  assert.notEqual(FP.ofFolder([a[0], { ...a[1], size: 6 }]), fp);
+});
+
+test('local fingerprint ignores only the time stamp', () => {
+  const pc = pcWith();
+  assert.equal(FP.ofLocalState(serialize(pc, 'pc', 1)), FP.ofLocalState(serialize(pc, 'pc', 2)));
+  const fp = FP.ofLocalState(serialize(pc, 'pc', 1));
+  pc.episodes['feedS::e1'].playbackPositionSeconds = 11;
+  assert.notEqual(FP.ofLocalState(serialize(pc, 'pc', 1)), fp);
+});
+
+test('a second sync with nothing changed reads and writes nothing', async () => {
+  const pc = pcWith();
+  const folder = statFolder();
+  const first = await runSync(pc, folder, { now: 10_000 });
+  assert.equal(first.plan, 'FULL');
+  assert.equal(folder.writes, 1);
+  await noteArchiveDone(pc, folder, first.bookmarksFp);
+
+  const second = await runSync(pc, folder, { now: 20_000 });
+  assert.equal(second.plan, 'NOTHING_TO_DO');
+  assert.equal(second.message, 'Already up to date');
+  assert.equal(second.archiveNeeded, false);
+  assert.equal(folder.reads, 0);
+  assert.equal(folder.writes, 1);
+});
+
+test('only this computer changed: write without reading, and skip the archive pass', async () => {
+  const pc = pcWith();
+  const folder = statFolder();
+  const first = await runSync(pc, folder, { now: 10_000 });
+  await noteArchiveDone(pc, folder, first.bookmarksFp);
+
+  pc.episodes['feedS::e1'].playbackPositionSeconds = 300;
+  pc.episodes['feedS::e1'].updatedAt = 15_000;
+  const res = await runSync(pc, folder, { now: 20_000 });
+  assert.equal(res.plan, 'WRITE_ONLY');
+  assert.equal(res.wrote, true);
+  assert.equal(res.archiveNeeded, false);
+  assert.equal(folder.reads, 0);
+  assert.equal(parse(folder.files['eagertolisten_sync.json']).episodes[0].pos, 300);
+
+  // A bookmark change does need the archive pass
+  pc.inspirations.b1 = { id: 'b1', episodeId: 'feedS::e1', podcastId: 'feedS', podcastTitle: 'S', episodeTitle: 'E', timestampSeconds: 5, audioUrl: '', note: 'n', quoteText: '', tags: '', createdAt: 21_000, updatedAt: 21_000 };
+  const withBookmark = await runSync(pc, folder, { now: 30_000 });
+  assert.equal(withBookmark.plan, 'WRITE_ONLY');
+  assert.equal(withBookmark.archiveNeeded, true);
+});
+
+test('the phone wrote: full pass; nothing new here afterwards, so no write back (no ping-pong)', async () => {
+  const pc = pcWith();
+  const folder = statFolder();
+  const first = await runSync(pc, folder, { now: 10_000 });
+  await noteArchiveDone(pc, folder, first.bookmarksFp);
+
+  // The phone merges our file, adds nothing we lack, and writes its own copy
+  const phoneCopy = { ...JSON.parse(folder.files['eagertolisten_sync.json']), deviceId: 'pixel', writtenAt: 12_000 };
+  folder.touch('eagertolisten_sync.json', JSON.stringify(phoneCopy));
+  const res = await runSync(pc, folder, { now: 20_000 });
+  assert.equal(res.plan, 'FULL');
+  assert.equal(folder.reads, 1);
+  assert.equal(res.wrote, false);
+  assert.equal(parse(folder.files['eagertolisten_sync.json']).deviceId, 'pixel');
+  // And now it's quiet again
+  await noteArchiveDone(pc, folder, res.bookmarksFp);
+  assert.equal((await runSync(pc, folder, { now: 30_000 })).plan, 'NOTHING_TO_DO');
+
+  // The phone writes real news: merged, and nothing to send back
+  const news = JSON.parse(folder.files['eagertolisten_sync.json']);
+  news.writtenAt = 40_000;
+  news.episodes[0].pos = 900;
+  news.episodes[0].updatedAt = 39_000;
+  folder.touch('eagertolisten_sync.json', JSON.stringify(news));
+  const merged = await runSync(pc, folder, { now: 50_000 });
+  assert.equal(merged.plan, 'FULL');
+  assert.equal(pc.episodes['feedS::e1'].playbackPositionSeconds, 900);
+  assert.equal(merged.wrote, true, 'our state changed, so our fingerprint moved and the file goes out');
+});
+
+test('the Sync button and the 6-hour safety net always read and write', async () => {
+  const pc = pcWith();
+  const folder = statFolder();
+  const first = await runSync(pc, folder, { now: 10_000 });
+  await noteArchiveDone(pc, folder, first.bookmarksFp);
+  const forced = await runSync(pc, folder, { now: 20_000, force: true });
+  assert.equal(forced.plan, 'FULL');
+  assert.equal(forced.wrote, true);
+  await noteArchiveDone(pc, folder, forced.bookmarksFp);
+  const later = await runSync(pc, folder, { now: 20_000 + FP.FULL_SYNC_EVERY_MS + 1 });
+  assert.equal(later.plan, 'FULL');
+  assert.equal(later.wrote, true);
+});
+
+test('changing the sync folder forgets what was remembered about the old one', async () => {
+  const pc = pcWith();
+  const folder = statFolder();
+  await runSync(pc, folder, { now: 10_000 });
+  pc.settings.syncFolder = '/tmp/other';
+  const res = await runSync(pc, statFolder(), { now: 20_000 });
+  assert.equal(res.plan, 'FULL');
+  assert.equal(res.wrote, true);
+});

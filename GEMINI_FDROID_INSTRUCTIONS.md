@@ -101,3 +101,34 @@ git push
 2. Checks 2.1 to 2.6: PASS / FAIL with one line each.
 3. The list of screenshots committed.
 4. The tag hash you put in the recipe.
+
+## 5. Re-tagging 0.9.4-alpha after later changes
+
+0.9.4-alpha hasn't shipped, and more went into it after the first tag (audit fixes, faster sync).
+F-Droid builds exactly the commit the tag names, so the tag has to move to the final commit.
+Do this only after the branch with those changes is merged to `main` and steps 1 and 2 pass again
+(`.\gradlew.bat clean testDebugUnitTest`, then the unsigned `assembleRelease`).
+
+Extra checks on the emulator for this round:
+
+1. Sync twice in a row with the Sync button, then leave the app and come back twice. Settings → sync
+   status should read **Already up to date** after the second time away.
+2. Play an episode for a minute, leave the app, come back: the status shows a normal "Synced…" line.
+3. Download an episode, play it, lock the screen for 3 minutes while streaming a different one:
+   playback keeps going.
+
+Then move the tag and update the recipe:
+
+```powershell
+git switch main
+git pull
+git tag -d v0.9.4-alpha
+git push origin :refs/tags/v0.9.4-alpha
+git tag -a v0.9.4-alpha -m "0.9.4-alpha"
+git push origin v0.9.4-alpha
+git rev-list -n1 v0.9.4-alpha
+```
+
+Put that new 40-character hash in `fdroid\com.eagertolisten.app.yml` (the `commit:` line), commit and
+push. If the F-Droid merge request is already open, the same hash has to be updated in the copy of
+the recipe there too: tell Michael.

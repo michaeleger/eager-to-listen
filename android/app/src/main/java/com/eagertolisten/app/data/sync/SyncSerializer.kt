@@ -1,5 +1,6 @@
 package com.eagertolisten.app.data.sync
 
+import androidx.room.withTransaction
 import com.eagertolisten.app.data.model.editedAt
 import com.eagertolisten.app.data.EagerDatabase
 import com.eagertolisten.app.data.dao.EpisodeSyncProjection
@@ -127,6 +128,31 @@ interface SyncDatabaseOps {
     suspend fun getInspirationRemovals(): Map<String, Long> = emptyMap()
     suspend fun saveInspirationRemovals(removals: Map<String, Long>) {}
     suspend fun deleteInspirationById(id: String) {}
+
+    /**
+     * The merge columns for many episodes in one go (missing IDs are simply absent). The default
+     * asks one at a time; the Room version uses a few batched queries.
+     */
+    suspend fun getEpisodeMergeStates(ids: List<String>): Map<String, com.eagertolisten.app.data.dao.EpisodeMergeState> =
+        ids.distinct().mapNotNull { id ->
+            getEpisodeById(id)?.let { e ->
+                com.eagertolisten.app.data.dao.EpisodeMergeState(
+                    id = e.id,
+                    playbackPositionSeconds = e.playbackPositionSeconds,
+                    isCompleted = e.isCompleted,
+                    completedAt = e.completedAt,
+                    isDismissed = e.isDismissed,
+                    dismissReason = e.dismissReason,
+                    skippedAt = e.skippedAt,
+                    skipCount = e.skipCount,
+                    updatedAt = e.updatedAt,
+                    durationSeconds = e.durationSeconds
+                )
+            }
+        }.associateBy { it.id }
+
+    /** Run the merge's database writes as one unit (one disk commit instead of thousands). */
+    suspend fun <T> inTransaction(block: suspend () -> T): T = block()
 }
 
 class RoomSyncDatabaseOps(
@@ -134,6 +160,17 @@ class RoomSyncDatabaseOps(
     private val unpinStore: UnpinStore? = null,
     private val bookmarkStore: BookmarkStore? = null
 ) : SyncDatabaseOps {
+    override suspend fun getEpisodeMergeStates(ids: List<String>): Map<String, com.eagertolisten.app.data.dao.EpisodeMergeState> {
+        val out = HashMap<String, com.eagertolisten.app.data.dao.EpisodeMergeState>()
+        // SQLite allows a limited number of values per query, so ask in chunks
+        for (chunk in ids.distinct().chunked(500)) {
+            for (row in db.episodeDao().getEpisodeMergeStates(chunk)) out[row.id] = row
+        }
+        return out
+    }
+
+    override suspend fun <T> inTransaction(block: suspend () -> T): T = db.withTransaction { block() }
+
     override suspend fun getInspirationRemovals(): Map<String, Long> = bookmarkStore?.removals() ?: emptyMap()
 
     override suspend fun saveInspirationRemovals(removals: Map<String, Long>) {
@@ -561,10 +598,28 @@ object SyncSerializer {
         remoteState: RemoteSyncState,
         onNewPodcastSubscribed: (suspend (String) -> Unit)? = null
     ): SyncSummary {
+        val newlySubscribedPodcasts = mutableListOf<String>()
+        val summary = ops.inTransaction { mergeStateInTransaction(ops, remoteState, newlySubscribedPodcasts) }
+
+        // Feed loading for shows another device added: network work, so after the database commit
+        if (onNewPodcastSubscribed != null) {
+            for (newPodcastId in newlySubscribedPodcasts) {
+                try {
+                    onNewPodcastSubscribed(newPodcastId)
+                } catch (_: Exception) {}
+            }
+        }
+        return summary
+    }
+
+    private suspend fun mergeStateInTransaction(
+        ops: SyncDatabaseOps,
+        remoteState: RemoteSyncState,
+        newlySubscribedPodcasts: MutableList<String>
+    ): SyncSummary {
         var mergedPodcasts = 0
         var mergedEpisodes = 0
         var mergedQueue = 0
-        val newlySubscribedPodcasts = mutableListOf<String>()
 
         // 1. Merge Podcasts
         for (rp in remoteState.podcasts) {
@@ -668,25 +723,26 @@ object SyncSerializer {
             }
         }
 
-        // 2. Merge Episodes
+        // 2. Merge Episodes. Local state is loaded in a few batched queries rather than one per
+        // episode, and episodes this device doesn't know yet are saved in one go at the end.
+        val localStates = ops.getEpisodeMergeStates(remoteState.episodes.map { it.id })
+        val pendingForLater = mutableListOf<PendingRemoteEpisode>()
         for (re in remoteState.episodes) {
-            val localEp = ops.getEpisodeById(re.id)
+            val localEp = localStates[re.id]
             if (localEp == null) {
                 val podcastId = if (re.id.contains("::")) re.id.substringBefore("::") else ""
-                ops.insertOrUpdatePendingEpisodes(
-                    listOf(
-                        PendingRemoteEpisode(
-                            episodeId = re.id,
-                            podcastId = podcastId,
-                            playbackPositionSeconds = re.pos,
-                            isCompleted = re.completed,
-                            completedAt = re.completedAt,
-                            isDismissed = re.dismissed,
-                            dismissReason = re.dismissReason,
-                            skippedAt = re.skippedAt,
-                            skipCount = re.skipCount,
-                            updatedAt = re.updatedAt
-                        )
+                pendingForLater.add(
+                    PendingRemoteEpisode(
+                        episodeId = re.id,
+                        podcastId = podcastId,
+                        playbackPositionSeconds = re.pos,
+                        isCompleted = re.completed,
+                        completedAt = re.completedAt,
+                        isDismissed = re.dismissed,
+                        dismissReason = re.dismissReason,
+                        skippedAt = re.skippedAt,
+                        skipCount = re.skipCount,
+                        updatedAt = re.updatedAt
                     )
                 )
             } else {
@@ -775,6 +831,8 @@ object SyncSerializer {
             }
         }
 
+        if (pendingForLater.isNotEmpty()) ops.insertOrUpdatePendingEpisodes(pendingForLater)
+
         // 3. Merge Manual Queue
         // 3a. Pins removed by hand on another device come out here too, unless re-pinned since (R2.7)
         val unpins = UnpinRules.merge(ops.getUnpins(), remoteState.manualQueueRemoved)
@@ -790,11 +848,13 @@ object SyncSerializer {
         }
 
         // 3b. Remote pins, skipping any removed by hand after they were pinned
+        val queueByEpisode: Map<String, QueueItem> =
+            if (remoteState.manualQueue.isEmpty()) emptyMap() else ops.getAllQueueItems().associateBy { it.episodeId }
         for (rmq in remoteState.manualQueue) {
             if (!UnpinRules.pinWins(rmq.updatedAt, unpins[rmq.episodeId])) continue
             val localEp = ops.getEpisodeById(rmq.episodeId)
             if (localEp != null && !localEp.isCompleted && !localEp.isDismissed) {
-                val existingQ = ops.getAllQueueItems().find { it.episodeId == rmq.episodeId }
+                val existingQ = queueByEpisode[rmq.episodeId]
                 if (existingQ == null) {
                     ops.insertQueueItem(
                         QueueItem(
@@ -843,15 +903,6 @@ object SyncSerializer {
         }
         if (newer.isNotEmpty()) ops.upsertInspirations(newer)
         if (remoteState.inspirationsRemoved.isNotEmpty()) ops.saveInspirationRemovals(removals)
-
-        // Trigger callback for any new podcasts that need feed fetching
-        if (onNewPodcastSubscribed != null) {
-            for (newPodcastId in newlySubscribedPodcasts) {
-                try {
-                    onNewPodcastSubscribed(newPodcastId)
-                } catch (_: Exception) {}
-            }
-        }
 
         return SyncSummary(
             podcastsSynced = mergedPodcasts,
