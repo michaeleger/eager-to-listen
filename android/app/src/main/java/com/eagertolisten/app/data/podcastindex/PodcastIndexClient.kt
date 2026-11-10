@@ -33,6 +33,7 @@ class PodcastIndexClient(private val context: Context) {
         private const val TAG = "PodcastIndexClient"
         const val PREF_KEY_PI_API_KEY = "podcastindex_api_key"
         const val PREF_KEY_PI_API_SECRET = "podcastindex_api_secret"
+        const val PREF_KEY_APPLE_SEARCH = "apple_search_enabled"
 
         val POPULAR_CATEGORIES = listOf(
             PodcastCategory("News", "News & Current Events"),
@@ -105,6 +106,19 @@ class PodcastIndexClient(private val context: Context) {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * "Also search Apple Podcasts" in Settings (on unless turned off). Apple's directory is a closed
+     * service; with this off the app never contacts Apple and searches Podcast Index only.
+     */
+    fun appleSearchEnabled(): Boolean =
+        context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE).getBoolean(PREF_KEY_APPLE_SEARCH, true)
+
+    /** False when Apple search is off and there's no Podcast Index key: search has nowhere to look. */
+    fun hasSearchSource(): Boolean {
+        val (key, secret) = getCredentials()
+        return appleSearchEnabled() || (key != null && secret != null)
+    }
+
     /** One directory failing (offline, down, bad key) must never sink the whole search. */
     private inline fun safely(source: String, block: () -> List<SearchResult>): List<SearchResult> = try {
         block()
@@ -143,7 +157,7 @@ class PodcastIndexClient(private val context: Context) {
                 if (apiKey != null && apiSecret != null) safely("Podcast Index") { searchPodcastIndex(query, apiKey, apiSecret) }
                 else emptyList()
             }
-            val apple = async { safely("Apple Podcasts") { searchItunes(query) } }
+            val apple = async { if (appleSearchEnabled()) safely("Apple Podcasts") { searchItunes(query) } else emptyList() }
             ShowSearch.merge(query, listOf(pi.await(), apple.await()))
         }
         (housePins(query, category = false) + merged).distinctBy { FeedUrl.matchKey(it.feedUrl) }
@@ -164,7 +178,7 @@ class PodcastIndexClient(private val context: Context) {
                 if (apiKey != null && apiSecret != null) safely("Podcast Index") { discoverPodcastIndexCategory(category, apiKey, apiSecret) }
                 else emptyList()
             }
-            val apple = async { safely("Apple Podcasts") { searchItunes(appleTerm) } }
+            val apple = async { if (appleSearchEnabled()) safely("Apple Podcasts") { searchItunes(appleTerm) } else emptyList() }
             // No typed words to match against: keep each directory's own order
             ShowSearch.merge("", listOf(pi.await(), apple.await()))
         }
@@ -173,6 +187,9 @@ class PodcastIndexClient(private val context: Context) {
 
     /** The feed address behind an Apple Podcasts (or Overcast) show link. */
     suspend fun lookupAppleFeed(appleId: String): SearchResult? = withContext(Dispatchers.IO) {
+        if (!appleSearchEnabled()) {
+            throw IOException("Apple Podcasts search is off in Settings. Turn it on to open Apple Podcasts links, or paste the show's feed link.")
+        }
         val request = Request.Builder()
             .url("https://itunes.apple.com/lookup?id=${URLEncoder.encode(appleId, "UTF-8")}&entity=podcast")
             .header("User-Agent", PodcastRepository.USER_AGENT)

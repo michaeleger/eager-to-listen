@@ -2,6 +2,7 @@
   "name": "eager-to-listen-desktop",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-3.0-only",
   "type": "module",
   "description": "Eager to Listen for Linux and Windows (Tauri).",
   "scripts": {

@@ -1,0 +1,5 @@
+• Now free software (GPL-3.0) and on F-Droid
+• Open podcast and RSS links in the app; see the show before you subscribe (P2 by default)
+• Search asks Podcast Index and Apple Podcasts together, so new shows turn up. Apple is optional in Settings
+• Rides out dead zones instead of skipping; a call or Bluetooth switch no longer deletes a download
+• Creator Inspiration Studio: share all bookmarks, permanent Drive archive

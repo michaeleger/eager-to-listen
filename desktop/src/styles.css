@@ -148,3 +148,6 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-size:
 .sub.mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
 .sub.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .row-actions.prio .small { min-width: 44px; }
+
+/* Checkbox inside the two-column settings forms */
+.form label.check { display: flex; align-items: center; gap: 8px; font-weight: normal; }

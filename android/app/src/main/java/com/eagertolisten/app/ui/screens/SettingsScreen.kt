@@ -152,6 +152,10 @@ fun SettingsScreen(
         )
     }
 
+    var appleSearch by remember {
+        mutableStateOf(prefs.getBoolean(com.eagertolisten.app.data.podcastindex.PodcastIndexClient.PREF_KEY_APPLE_SEARCH, true))
+    }
+
     val nwcKeyStorage = remember { com.eagertolisten.app.data.v4v.NwcKeyStorage(context) }
     var nwcConnection by remember { mutableStateOf(if (com.eagertolisten.app.FeatureFlags.V4V_NWC) nwcKeyStorage.getConnection() else null) }
     var nwcInputUri by remember { mutableStateOf("") }
@@ -832,7 +836,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Add your developer API Key and Secret from podcastindex.org for live authenticated category discovery and index queries. (An automatic iTunes directory fallback is used if omitted).",
+                        text = "Add your free API key and secret from podcastindex.org to search the open Podcasting 2.0 directory. Search also asks Apple Podcasts unless you turn that off below.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
@@ -878,6 +882,25 @@ fun SettingsScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(8.dp)
                     )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Also search Apple Podcasts", color = TextPrimary, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                            Text(
+                                text = "Finds new shows Podcast Index hasn't picked up yet. Apple's directory is a closed service: turn this off and the app never contacts Apple (Apple Podcasts links then won't open). With it off, search needs your Podcast Index key.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = appleSearch,
+                            onCheckedChange = {
+                                appleSearch = it
+                                prefs.edit().putBoolean(com.eagertolisten.app.data.podcastindex.PodcastIndexClient.PREF_KEY_APPLE_SEARCH, it).apply()
+                            }
+                        )
+                    }
                 }
             }
 

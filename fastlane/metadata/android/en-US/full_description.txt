@@ -1,29 +1,35 @@
-Eager to Listen is an open-standards, privacy-first podcast player designed for daily commuters, serial learners, and audio power-users who want complete control over how their audio is scheduled.
+Eager to Listen plays your podcasts the way a good radio station would. You tell it which shows matter most, and it builds your day's listening for you: the important stuff first, a fair mix of everything else, and no single show taking over the queue.
 
-Featuring the Curated Airwaves™ Engine (Radio U), Eager to Listen acts like your own personal public radio station, programming your day's listening with smart priority weighting and anti-binge fair rotation so no single show hijacks your queue.
+<b>Radio U, your own station</b>
+• Give each show a priority from P1 to P5. Daily news and must-hear shows go first; weekend listening waits its turn.
+• Fair rotation mixes your shows so one prolific feed can't bury the rest.
+• Hot List: every unplayed episode from your P1 shows, one tap away.
+• Four play orders per show: newest first, oldest first (for serials and courses), news (old episodes drop off after a few days) and evergreen (works through the back catalog).
+• Pin an episode to the top and it stays put when the queue rebuilds.
+• Per-show playback speed and intro/outro skipping.
 
-Key Features:
+<b>Built for the car</b>
+• Android Auto: your queue, Hot List, daily news and shows on the car screen.
+• Steering-wheel buttons rewind 15 seconds and skip ahead 90.
+• Rides out tunnels and dead zones instead of skipping your episode, and recovers when a download goes bad.
 
-📻 Curated Airwaves™ Engine (Radio U)
-• 5-Tier Priority Matrix (P1 to P5): Critical daily news automatically leapfrogs casual weekend banter.
-• Hot List: Instant one-tap access to all unplayed episodes from your Priority 1 feeds.
-• 4 Autonomous Play Order Strategies: Chronological (serials/audio courses), Reverse Chronological (episodic), News (rolling retention window purging stale news), and Evergreen (balanced back-catalog interleaving).
-• Per-Feed Customization: Tailor intro/outro skip times and per-show playback speeds.
+<b>Podcasting 2.0</b>
+• Transcripts that follow along as you listen; tap a line to jump there.
+• Chapters with artwork and links.
+• Live episodes, with a LIVE badge.
+• Hosts and guests, and the show's own support links.
 
-🚀 Native Podcasting 2.0 Superpowers
-• Synchronized Interactive Transcripts: Real-time word-by-word highlighted transcripts (SRT, WebVTT, JSON) with tap-to-seek and live text search.
-• Rich Chapters with Artwork: Jump directly to topics with embedded chapter artwork and external reference links.
-• Live Stream Detection: Real-time LIVE NOW indicators with 1-tap stream tuning.
-• Person & Guest Tags: View speaker profiles, co-hosts, and roles.
+<b>Finding shows</b>
+• Search the open Podcast Index directory (add your free key) and, if you want, Apple Podcasts too. You can turn Apple off in Settings.
+• Open podcast and RSS links in the app, or share them to it. You see the show before you subscribe.
+• Import from Podcast Addict or OPML; export OPML.
 
-⚡ Creator Support & Value for Value
-• Direct Funding: 1-tap support via creator-chosen donation channels (PayPal, Stripe, Patreon, Buy Me a Coffee).
-• Lightning Boostagrams: Send satoshi boosts with custom notes and interactive recipient splits to creators.
+<b>Creator Inspiration Studio</b>
+Bookmark the moment you just heard, from the player or the car. Add notes later, share the whole list as Markdown, and keep a permanent archive in your own Google Drive folder with episode links, timestamps and transcript excerpts.
 
-🚗 Built for the Car & Commuting
-• Android Auto Media Library: Browse Pending Playlists, Hot List, Daily News, and Subscribed Shows directly from your vehicle console.
-• Steering-Wheel Controls: Dedicated skip backward (-15s) and forward (+90s) controls.
+<b>Your data stays yours</b>
+• No ads, no tracking, no account.
+• Optional sync between your phone and the Eager to Listen desktop app through a folder you pick in your own Google Drive. No server of ours is involved.
+• Downloads for offline listening, on Wi-Fi only if you like.
 
-🔒 Privacy-First Zero-Server Cloud Sync
-• Sync your subscriptions, queue state, and progress across Android, Desktop, and Web using your personal Google Drive AppData folder.
-• No ads, no third-party tracking databases, no telemetry selling your listening habits.
+Eager to Listen is in alpha. Bug reports and ideas are welcome on GitHub.

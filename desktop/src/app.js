@@ -306,6 +306,8 @@ const FEATURED = [
 const CATEGORIES = ['News', 'Health & Fitness', 'Self-Help', 'Technology', 'Science', 'Society & Culture', 'Business', 'History', 'True Crime', 'Comedy', 'Education'];
 
 const hasPodcastIndex = () => !!(state.lib.settings.podcastIndexKey && state.lib.settings.podcastIndexSecret);
+// "Also search Apple Podcasts" (Settings), on unless turned off. Off: the app never contacts Apple.
+const appleSearchOn = () => state.lib.settings.appleSearch !== false;
 
 async function podcastIndex(path) {
   const body = await invoke('podcastindex_get', { path, apiKey: state.lib.settings.podcastIndexKey, apiSecret: state.lib.settings.podcastIndexSecret });
@@ -319,6 +321,7 @@ async function appleSearch(term) {
 }
 
 async function appleLookup(id) {
+  if (!appleSearchOn()) throw new Error("Apple Podcasts search is off in Settings. Turn it on to open Apple Podcasts links, or paste the show's feed link.");
   const url = `https://itunes.apple.com/lookup?entity=podcast&id=${encodeURIComponent(id)}`;
   const res = await invoke('fetch_text', { url, etag: null, lastModified: null });
   return S.fromApple(JSON.parse(res.body))[0] || null;
@@ -329,6 +332,10 @@ async function appleLookup(id) {
 async function searchDirectory(term, { category = null } = {}) {
   if (!category && resolveLink(term).kind !== 'search') {
     openAddShow(term);
+    return;
+  }
+  if (!hasPodcastIndex() && !appleSearchOn()) {
+    toast('Search has nowhere to look: turn on Apple Podcasts search or add a Podcast Index key in Settings.', 7000);
     return;
   }
   state.searchResults = 'loading';
@@ -344,7 +351,7 @@ async function searchDirectory(term, { category = null } = {}) {
     hasPodcastIndex()
       ? safely('Podcast Index', podcastIndex(category ? `podcasts/bycategory?cat=${encodeURIComponent(category)}&max=40` : `search/byterm?q=${encodeURIComponent(term)}&max=40`))
       : Promise.resolve([]),
-    safely('Apple Podcasts', appleSearch(appleTerm)),
+    appleSearchOn() ? safely('Apple Podcasts', appleSearch(appleTerm)) : Promise.resolve([]),
   ]);
   const results = S.mergeResults(category ? '' : term, [pi, apple]);
   // Pin the house shows on matching searches, as the phone does
@@ -353,7 +360,7 @@ async function searchDirectory(term, { category = null } = {}) {
   if (q.includes('no agenda') || (category && (q.includes('news') || q.includes('current')))) pins.push(FEATURED[1]);
   if (q.includes('eager') || q === 'health' || q.includes('wellness') || q.includes('self help') || q.includes('self-help') || (category && (q.includes('health') || q.includes('fitness')))) pins.push(FEATURED[0]);
   state.searchResults = [...pins, ...results.filter((r) => !pins.some((p) => sameFeed(p.feedUrl, r.feedUrl)))];
-  state.searchSource = [hasPodcastIndex() && !failed.includes('Podcast Index') ? 'Podcast Index' : '', failed.includes('Apple Podcasts') ? '' : 'Apple Podcasts'].filter(Boolean).join(' + ');
+  state.searchSource = [hasPodcastIndex() && !failed.includes('Podcast Index') ? 'Podcast Index' : '', appleSearchOn() && !failed.includes('Apple Podcasts') ? 'Apple Podcasts' : ''].filter(Boolean).join(' + ');
   if (failed.length) toast(`${failed.join(' and ')} didn't answer${results.length ? '; showing the rest' : '. Check your connection'}.`, 6000);
   render();
 }
@@ -950,7 +957,15 @@ function viewAdd() {
         : `<h2>Featured</h2>${resultRows(FEATURED)}`;
   return `<h1>Add a show</h1>
     ${viewAddShowCard()}
-    <p class="sub">${pi ? 'Searches Podcast Index (the Podcasting 2.0 directory) and Apple Podcasts together.' : 'Searches Apple Podcasts. Add your Podcast Index key in Settings to search the Podcasting 2.0 directory too.'} You can also paste a link: a feed, an Apple Podcasts page, or the show's website.</p>
+    <p class="sub">${
+      pi && appleSearchOn()
+        ? 'Searches Podcast Index (the Podcasting 2.0 directory) and Apple Podcasts together.'
+        : pi
+          ? 'Searches Podcast Index (the Podcasting 2.0 directory). Apple Podcasts search is off in Settings.'
+          : appleSearchOn()
+            ? 'Searches Apple Podcasts. Add your Podcast Index key in Settings to search the Podcasting 2.0 directory too.'
+            : 'Search is off: add your Podcast Index key or turn Apple Podcasts search back on in Settings.'
+    } You can also paste a link: a feed${appleSearchOn() ? ', an Apple Podcasts page' : ''}, or the show's website.</p>
     <form class="search" id="searchForm"><input type="search" name="q" placeholder="Search shows, or paste a link" aria-label="Search shows" /><button class="btn">Search</button></form>
     <form class="search" id="urlForm"><input type="text" name="url" placeholder="Feed, Apple Podcasts or website link" aria-label="Show link" /><button class="ghost">Add</button></form>
     ${pi ? `<div class="row-actions">${CATEGORIES.map((c) => `<button class="ghost small" data-action="browse-category" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
@@ -1171,10 +1186,12 @@ function viewSettings() {
       <span></span><div><button class="btn" type="submit">Save</button></div>
     </form>
     <h2>Podcast Index</h2>
-    <p class="sub">Search the open Podcasting 2.0 directory. Get a free key at <button class="link" data-action="open-url" data-url="https://api.podcastindex.org/signup">api.podcastindex.org</button>; it stays on this computer and isn't synced. Without it, search uses Apple Podcasts.</p>
+    <p class="sub">Search the open Podcasting 2.0 directory. Get a free key at <button class="link" data-action="open-url" data-url="https://api.podcastindex.org/signup">api.podcastindex.org</button>; it stays on this computer and isn't synced.</p>
     <form class="form" id="piForm">
       <label for="pi-key">API key</label><input id="pi-key" type="text" name="podcastIndexKey" value="${esc(s.podcastIndexKey || '')}" autocomplete="off" spellcheck="false" />
       <label for="pi-secret">API secret</label><input id="pi-secret" type="password" name="podcastIndexSecret" value="${esc(s.podcastIndexSecret || '')}" autocomplete="off" />
+      <label for="pi-apple">Apple Podcasts</label><label class="check"><input id="pi-apple" type="checkbox" name="appleSearch" ${s.appleSearch !== false ? 'checked' : ''} /> Also search Apple Podcasts</label>
+      <span></span><p class="sub" style="margin:0">Finds new shows Podcast Index hasn't picked up yet. Apple's directory is a closed service: turn this off and the app never contacts Apple (Apple Podcasts links then won't open). With it off, search needs your key.</p>
       <span></span><div><button class="btn" type="submit">Save</button></div>
     </form>
     <h2>Playback problems</h2>
@@ -1560,9 +1577,10 @@ document.addEventListener('submit', (e) => {
   } else if (f.id === 'piForm') {
     lib.settings.podcastIndexKey = (data.podcastIndexKey || '').trim();
     lib.settings.podcastIndexSecret = (data.podcastIndexSecret || '').trim();
+    lib.settings.appleSearch = data.appleSearch === 'on';
     persist();
     render();
-    toast(hasPodcastIndex() ? 'Podcast Index key saved' : 'Podcast Index key cleared');
+    toast(!hasPodcastIndex() && !appleSearchOn() ? 'Saved. Search has nowhere to look until you add a key or turn Apple back on.' : 'Saved');
   }
 });
 

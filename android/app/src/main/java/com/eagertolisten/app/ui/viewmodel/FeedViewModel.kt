@@ -103,6 +103,10 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _selectedCategory.value = null
+        if (!podcastIndexClient.hasSearchSource()) {
+            _userMessage.value = "Search has nowhere to look: turn on Apple Podcasts search or add a Podcast Index key in Settings."
+            return
+        }
         viewModelScope.launch {
             _isSearching.value = true
             try {

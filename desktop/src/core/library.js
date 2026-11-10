@@ -31,6 +31,7 @@ export function emptyLibrary() {
       queueSortRule: 'PROGRAMMED_FAIR', // Radio U: see QUEUE_SORT_RULES
       podcastIndexKey: '',
       podcastIndexSecret: '',
+      appleSearch: true, // "Also search Apple Podcasts"; Apple's directory is a closed service
     },
     deviceId: null,
     nowPlayingId: null, // last episode in the player, restored paused on start

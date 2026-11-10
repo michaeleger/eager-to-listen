@@ -186,6 +186,10 @@ See [desktop/README.md](desktop/README.md): build steps, rclone setup for phone 
 ---
 
 ## 📄 License & Community
+Eager to Listen is free software, licensed under the **GNU General Public License v3.0** ([LICENSE](./LICENSE)).
+Copyright © 2026 Michael Scott Eger. You can use, study, share and change it; versions you
+share must stay under the same license.
+
 Built with ❤️ for the open podcasting ecosystem and the Podcasting 2.0 movement.  
 App page & downloads: **[eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen)**  
 For feedback, bug reports, and alpha tester inquiries, contact **michael.eger@michaelegerconsulting.com** or see [ALPHA_TESTERS.md](./ALPHA_TESTERS.md).

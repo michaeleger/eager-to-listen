@@ -5,7 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [Unreleased]
+## [0.9.4-alpha] - 2026-11-10
+
+### 📦 Open source and F-Droid
+- **Eager to Listen is now free software under the GNU GPL v3.0** (see LICENSE). The app is being submitted to F-Droid.
+- **New setting: Also search Apple Podcasts** (Settings → Podcast Index, on by default). Apple's directory is a closed service; turn this off and the app never contacts Apple and searches Podcast Index only (add your free key). Apple Podcasts links need it on. Same switch on the desktop.
+- Build cleanup for F-Droid: removed an unused Google build plugin and the Google-encrypted dependency list from the APK.
 
 ### 🚗 Playback recovery (follow-ups to 0.9.3)
 - **No signal no longer skips your episode.** 0.9.3 gives up on a streaming episode after two quick retries and moves on, which is right when the source is broken but wrong in a tunnel or dead zone, where it would skip through the queue. With no internet connection at all, the player waits for the signal again (up to about 8½ minutes, as before 0.9.3). With a connection, a failing source still moves on after the two quick retries.

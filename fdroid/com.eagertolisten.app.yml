@@ -1,0 +1,33 @@
+Categories:
+  - Multimedia
+  - Podcast
+License: GPL-3.0-only
+AuthorName: Michael Scott Eger
+AuthorEmail: michael.eger@michaelegerconsulting.com
+AuthorWebSite: https://eagertobehealthy.com
+WebSite: https://eagertobehealthy.com/eager-to-listen
+SourceCode: https://github.com/michaeleger/eager-to-listen
+IssueTracker: https://github.com/michaeleger/eager-to-listen/issues
+Changelog: https://github.com/michaeleger/eager-to-listen/blob/HEAD/CHANGELOG.md
+
+AutoName: Eager to Listen
+
+RepoType: git
+Repo: https://github.com/michaeleger/eager-to-listen.git
+
+Builds:
+  - versionName: 0.9.4-alpha
+    versionCode: 13
+    commit: REPLACE_WITH_FULL_COMMIT_HASH_OF_v0.9.4-alpha
+    subdir: android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y -t trixie openjdk-21-jdk-headless
+      - update-java-alternatives -a
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.9.4-alpha
+CurrentVersionCode: 13

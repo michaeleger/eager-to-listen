@@ -19,8 +19,9 @@ None of the new Android code has been compiled yet. Step 1 is the first build.
 - Do not change anything in the repo except to report results. If a build or test fails, stop and
   report the error text; do not try to fix the code.
 - Commands below are PowerShell on the Windows PC, run from the repo root unless they say otherwise.
-- Take a screenshot for every check that involves the screen:
-  `adb exec-out screencap -p > shots\NN-name.png` (make the `shots` folder first). Name them by step number.
+- Take a screenshot for every check that involves the screen (make the `shots` folder first, name them by step number):
+  `adb shell screencap -p /sdcard/s.png; adb pull /sdcard/s.png shots\NN-name.png`
+  Don't use `adb exec-out screencap -p > file` in PowerShell: it saves the image as text and breaks it.
 - For any FAIL, attach the log:
   `adb logcat -d | Select-String -Pattern "eagertolisten|PodcastIndexClient|PodcastRepository|AndroidRuntime" | Select-Object -Last 80`
 

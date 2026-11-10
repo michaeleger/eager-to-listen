@@ -13,8 +13,8 @@ android {
         applicationId = "com.eagertolisten.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.9.3-alpha"
+        versionCode = 13
+        versionName = "0.9.4-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -50,6 +50,12 @@ android {
 
     kotlinOptions {
         jvmTarget = "21"
+    }
+
+    // F-Droid: leave out the dependency list Google encrypts into the APK signing block
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     buildFeatures {

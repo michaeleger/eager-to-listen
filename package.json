@@ -1,6 +1,7 @@
 {
   "name": "eager-to-be-healthy-podcast-player",
   "version": "1.0.0",
+  "license": "GPL-3.0-only",
   "description": "Eager to Listen podcast player featuring Podcast 2.0 synchronized transcripts and programmable queue support.",
   "main": "server.js",
   "scripts": {
