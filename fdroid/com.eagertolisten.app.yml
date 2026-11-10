@@ -18,7 +18,7 @@ Repo: https://github.com/michaeleger/eager-to-listen.git
 Builds:
   - versionName: 0.9.4-alpha
     versionCode: 13
-    commit: REPLACE_WITH_FULL_COMMIT_HASH_OF_v0.9.4-alpha
+    commit: d257339f3d5ca439f80aef9d0cc51e6cc15ed640
     subdir: android/app
     sudo:
       - apt-get update
