@@ -8,8 +8,8 @@
     <language>en-us</language>
     <copyright>Copyright 2026 Eager to be Healthy</copyright>
     <itunes:author>Dr. Michael</itunes:author>
-    <itunes:summary>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and DoggCatcher priority queue integration.</itunes:summary>
-    <description>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and DoggCatcher priority queue integration.</description>
+    <itunes:summary>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and priority queue integration.</itunes:summary>
+    <description>A modern sample podcast showcasing Podcast 2.0 features, including interactive synchronized transcripts and priority queue integration.</description>
     <itunes:image href="https://images.unsplash.com/photo-1590602847861-f357a9332bbc?q=80&amp;w=300&amp;h=300&amp;fit=crop" />
     <itunes:category text="Health &amp; Fitness" />
     

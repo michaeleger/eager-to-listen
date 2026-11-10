@@ -1,19 +1,16 @@
 {
-  "name": "eager-to-be-healthy-podcast-player",
+  "name": "eager-to-listen-web-prototype",
   "version": "1.0.0",
   "license": "GPL-3.0-only",
-  "description": "Eager to Listen podcast player featuring Podcast 2.0 synchronized transcripts and programmable queue support.",
+  "description": "Original web prototype of the Eager to Listen podcast player. The Android and desktop apps do not use it.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test_server.js"
   },
   "dependencies": {
-    "@capacitor/android": "^8.4.1",
-    "@capacitor/cli": "^8.4.1",
-    "@capacitor/core": "^8.4.1",
-    "axios": "^1.6.0",
-    "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "axios": "^1.13.0",
+    "express": "^4.21.0"
   },
   "private": true
 }

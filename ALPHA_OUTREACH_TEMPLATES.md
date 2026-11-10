@@ -83,7 +83,7 @@ Tired of binge queues? We're building **Eager to Listen** (Curated Airwaves / Ra
 >
 > We’re bringing back power-user queue automation: announcing the Closed Alpha for **Eager to Listen**! 🎧👇
 >
-> 2/5 **DoggCatcher smarts + Podcasting 2.0 standards**:
+> 2/5 **A smart priority queue + Podcasting 2.0 standards**:
 > - 5-tier priority matrix (P1-P5) & 1-tap Hot List
 > - 4 autonomous play order strategies (serials, rolling news window, evergreen)
 > - Per-feed custom intro/outro skip times & playback speeds

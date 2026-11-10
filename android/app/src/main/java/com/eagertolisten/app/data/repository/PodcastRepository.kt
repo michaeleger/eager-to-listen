@@ -71,7 +71,7 @@ class PodcastRepository(context: Context) {
     }
 
     companion object {
-        const val USER_AGENT = "EagerToListen/0.9.2-alpha (Android; +https://eagertobehealthy.com/eager-to-listen)"
+        val USER_AGENT: String = "EagerToListen/${com.eagertolisten.app.BuildConfig.VERSION_NAME} (Android; +https://eagertobehealthy.com/eager-to-listen)"
         const val ACCEPT_HEADER = "application/rss+xml, application/xml, text/xml, application/atom+xml, text/html;q=0.9, */*;q=0.8"
 
         private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -319,7 +319,8 @@ class PodcastRepository(context: Context) {
                 }
 
                 // Handle itunes:new-feed-url
-                if (!parsed.newFeedUrl.isNullOrBlank() && parsed.newFeedUrl != podcast.feedUrl) {
+                if (!parsed.newFeedUrl.isNullOrBlank() && parsed.newFeedUrl != podcast.feedUrl &&
+                    Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(parsed.newFeedUrl)) {
                     Log.i("EagerRefresh", "itunes:new-feed-url for '${podcast.title}': ${podcast.feedUrl} -> ${parsed.newFeedUrl}")
                     podcastDao.updateFeedUrl(podcast.id, parsed.newFeedUrl)
                 }

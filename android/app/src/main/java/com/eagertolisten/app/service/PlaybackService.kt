@@ -184,6 +184,9 @@ class PlaybackService : MediaLibraryService() {
             .setSeekForwardIncrementMs(PlayerSettings.current().seekForwardMs)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
+            // Streaming with the screen off: hold the CPU and Wi-Fi awake while playing, or the
+            // stream can stall once the buffer runs out (released automatically when paused)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         // 3. Wrap in ForwardingPlayer to guarantee podcast transport controls:

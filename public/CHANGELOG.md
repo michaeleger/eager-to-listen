@@ -301,5 +301,5 @@ Fixes and features from the first round of 0.9.1 tester reports. Thank you to ev
 
 ### Added
 - Initial project prototype and algorithm design.
-- Core queue priority sorting algorithms (Hot List, DoggCatcher priority matrix).
+- Core queue priority sorting algorithms (Hot List, priority matrix).
 - Initial WebVTT parser and web player companion.

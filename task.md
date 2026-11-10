@@ -16,7 +16,7 @@
   - [x] Add OkHttp and Coroutines dependencies
   - [x] Verify clean Gradle build synchronization
 
-- [x] **Phase 12: Room Database & DoggCatcher Data Models**
+- [x] **Phase 12: Room Database & Priority Queue Data Models**
   - [x] Create `Podcast` entity with per-feed settings (Skip Intro, Skip Outro, Speed, Priority 1–5, Auto-Add, Max Episodes)
   - [x] Create `Episode` entity with playback positions, completion status, and Podcasting 2.0 metadata
   - [x] Create `QueueItem` entity with priority rank and custom display order
@@ -38,9 +38,9 @@
 - [x] **Phase 15: Jetpack Compose UI (Forest Green & Burnt Orange)**
   - [x] Build Material3 Theme with Eager to Listen palette (`#0C1611`, `#1C2E25`, `#EB5E17`)
   - [x] One-handed Bottom Navigation Bar (Queue, Subscriptions, Discover, Settings)
-  - [x] `QueueScreen`: DoggCatcher priority sorting, Hot List (Priority 1) filter, bulk actions
+  - [x] `QueueScreen`: priority sorting, Hot List (Priority 1) filter, bulk actions
   - [x] `SubscriptionsScreen`: Feed listing with priority badges and quick refresh
-  - [x] `FeedCustomizerSheet`: Per-feed DoggCatcher settings (Priority 1–5, skip intro/outro, speed, auto-add, max retention)
+  - [x] `FeedCustomizerSheet`: Per-feed settings (Priority 1–5, skip intro/outro, speed, auto-add, max retention)
   - [x] `DiscoverScreen`: iTunes podcast search, direct RSS feed input, curated feeds, duplicate prevention
   - [x] `MiniPlayer`: Docked bottom player with 15s rewind, 90s forward skip, play/pause
   - [x] `PlayerSheet`: Full Now Playing screen with scrubber, speed picker, Podcasting 2.0 chapters drawer, and synced transcript viewer

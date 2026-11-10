@@ -170,7 +170,7 @@ test('sync file names follow the Android rules', () => {
   assert.ok(isSyncFileName('eagertolisten_sync (1).json'));
   assert.ok(!isSyncFileName('eagertolisten_sync.tmp.json'));
   assert.ok(!isSyncFileName('eagertolisten_sync.bak.json'));
-  assert.ok(!isSyncFileName('doggcatcher_sync_state.json'));
+  assert.ok(!isSyncFileName('some_other_sync_state.json'));
 });
 
 test('local folder shows never leave the PC', () => {
@@ -222,6 +222,23 @@ test('sync pass merges the phone file and conflict copies, writes one file, remo
   assert.equal(written.deviceId, 'pc-test');
   assert.equal(written.podcasts.length, 2);
   assert.equal(pc.lastSyncAt, 6000);
+});
+
+test('an unreadable main sync file stops the pass and is left untouched', async () => {
+  const damaged = '{ "format": 2, "podcasts": [';
+  for (const folder of [
+    fakeFolder({ 'eagertolisten_sync.json': damaged }),
+    // A read that fails outright (rclone error, connection dropped)
+    { ...fakeFolder({ 'eagertolisten_sync.json': damaged }), read: async () => { throw new Error('rclone: timeout'); } },
+  ]) {
+    const pc = emptyLibrary();
+    pc.deviceId = 'pc-test';
+    pc.settings.syncFolder = '/tmp/sync';
+    pc.podcasts.feedS = pod('feedS');
+    await assert.rejects(runSync(pc, folder, { now: 6000 }), /couldn't be read, so nothing was changed/);
+    assert.equal(folder.files['eagertolisten_sync.json'], damaged);
+    assert.ok(!pc.lastSyncAt);
+  }
 });
 
 test('sync pass needs a folder', async () => {

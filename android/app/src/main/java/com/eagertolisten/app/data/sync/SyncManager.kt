@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
@@ -42,6 +43,11 @@ data class SyncState(
 )
 
 class SyncManager(private val context: Context) {
+
+    companion object {
+        private val syncMutex = kotlinx.coroutines.sync.Mutex()
+        const val SYNC_FILE = "eagertolisten_sync.json"
+    }
 
     private val prefs: SharedPreferences = context.getSharedPreferences("eager_sync_prefs", Context.MODE_PRIVATE)
     private val db = EagerDatabase.getInstance(context)
@@ -132,7 +138,14 @@ class SyncManager(private val context: Context) {
         )
     }
 
-    suspend fun performSync(isManual: Boolean = false): Result<SyncSummary> = withContext(Dispatchers.IO) {
+    /**
+     * One sync at a time across the app. Leaving the app, the 12-hour job and the Sync button each
+     * make their own SyncManager, and two passes at once would write the same temp file.
+     */
+    suspend fun performSync(isManual: Boolean = false): Result<SyncSummary> =
+        syncMutex.withLock { performSyncLocked(isManual) }
+
+    private suspend fun performSyncLocked(isManual: Boolean): Result<SyncSummary> = withContext(Dispatchers.IO) {
         val uriStr = _state.value.folderUri
             ?: return@withContext Result.failure(Exception("No sync folder selected. Please select a Google Drive folder."))
 
@@ -158,8 +171,10 @@ class SyncManager(private val context: Context) {
             var mergedPodcastsTotal = 0
             var mergedEpisodesTotal = 0
             val duplicateFilesToDelete = mutableListOf<DocumentFile>()
+            var mainUnreadable: Exception? = null
 
             for (file in syncFiles) {
+                var readOk = false
                 try {
                     context.contentResolver.openInputStream(file.uri)?.use { stream ->
                         val text = stream.bufferedReader().readText()
@@ -173,14 +188,25 @@ class SyncManager(private val context: Context) {
                                 mergedEpisodesTotal += summary.episodesSynced
                             }
                         }
-                    }
+                        readOk = true
+                    } ?: throw java.io.IOException("Couldn't open ${file.name}")
                 } catch (e: Exception) {
                     Log.w("SyncManager", "Failed to parse remote sync file: ${file.name}", e)
+                    if (file.name == SYNC_FILE) mainUnreadable = e
                 }
 
-                if (file.name != "eagertolisten_sync.json") {
+                // A copy we couldn't read is left alone rather than deleted with its contents unmerged
+                if (file.name != SYNC_FILE && readOk) {
                     duplicateFilesToDelete.add(file)
                 }
+            }
+
+            // The main file exists but couldn't be read (half uploaded, Drive not caught up, damaged).
+            // Stop here: writing now would replace it, and the backup copy, with this phone's state only.
+            mainUnreadable?.let {
+                throw IllegalStateException(
+                    "The sync file in Drive couldn't be read, so nothing was changed. Try again in a few minutes. (${it.localizedMessage ?: it.javaClass.simpleName})"
+                )
             }
 
             // Clean up extra duplicate files in Drive

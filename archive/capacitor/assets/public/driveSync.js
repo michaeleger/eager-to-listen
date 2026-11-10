@@ -12,7 +12,7 @@ export class DriveSync {
     this.lastSyncedAt = typeof localStorage !== 'undefined' ? localStorage.getItem('dc_drive_last_synced') : null;
     this.syncFileId = typeof localStorage !== 'undefined' ? localStorage.getItem('dc_drive_file_id') : null;
     this.isSyncing = false;
-    this.syncFileName = 'doggcatcher_sync_state.json';
+    this.syncFileName = 'eagertolisten_web_sync_state.json';
     this.tokenClient = null;
     
     this.initTokenClient();

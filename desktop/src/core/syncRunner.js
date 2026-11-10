@@ -41,6 +41,11 @@ export async function runSync(lib, io, { now = Date.now(), onNewShows = null } =
         }
       }
     } catch (e) {
+      // The main file exists but couldn't be read (half uploaded, connection dropped, damaged).
+      // Stop: writing now would replace it, and its backup, with this computer's state only.
+      if (name === SYNC_FILE) {
+        throw new Error(`The sync file couldn't be read, so nothing was changed. Try again in a few minutes. (${e.message || e})`);
+      }
       problems.push(`${name}: ${e.message || e}`);
       unreadable.add(name);
     }

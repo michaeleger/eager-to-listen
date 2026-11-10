@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [Unreleased]
+
+Fixes from the November 10 code audit. Not in the 0.9.4-alpha build.
+
+### 📱 Android
+- **Streaming no longer stalls with the screen off.** The player now keeps the phone's processor and Wi-Fi awake while it plays.
+- **One sync at a time.** Leaving the app, the 12-hour update and the Sync button could each start a sync at the same moment and write over each other.
+- **Sync stops instead of overwriting what it can't read.** If the sync file in Drive can't be read (half uploaded, damaged), nothing is changed and you're told to try again; before, it was replaced along with its backup copy. A conflict copy that can't be read is kept instead of deleted.
+- **Downloads:** episodes with very long addresses can download now (the file name was too long, so they failed every time); an interrupted download only continues if the file on the server is still the same one, which matters for shows with changing ads; a Wi-Fi sign-in page is no longer saved as an episode.
+- A show can only move itself to a new address that is a web address.
+- Feed hosts now see the real app version. Removed an unused file-sharing component and a leftover screen layout.
+
+### 🖥️ Desktop
+- **Links open again.** Support Show, Episode page and the Podcast Index sign-up link were all blocked by a missing permission.
+- Sync stops, the same as on the phone, when the main sync file can't be read.
+
+### 🧹 Repo
+- The old web prototype (`server.js`, `public/`): dependencies updated (12 known vulnerabilities, now 0), Capacitor removed, the feed proxy now listens on this computer only and checks every address at connect time, including redirects.
+- Removed another product's name from code, samples, config and outreach text.
+
+---
+
 ## [0.9.4-alpha] - 2026-11-10
 
 ### 📦 Open source and F-Droid
@@ -363,5 +385,5 @@ Fixes and features from the first round of 0.9.1 tester reports. Thank you to ev
 
 ### Added
 - Initial project prototype and algorithm design.
-- Core queue priority sorting algorithms (Hot List, DoggCatcher priority matrix).
+- Core queue priority sorting algorithms (Hot List, priority matrix).
 - Initial WebVTT parser and web player companion.

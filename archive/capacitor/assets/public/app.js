@@ -1084,7 +1084,7 @@ function setupAudioPlayer() {
     audio.volume = parseFloat(e.target.value);
   });
 
-  // Backward 15s (DoggCatcher / Podcast standard)
+  // Backward 15s (podcast standard)
   document.getElementById('player-skip-back-btn').addEventListener('click', () => {
     audio.currentTime = Math.max(0, audio.currentTime - 15);
     updateMediaSessionPosition();

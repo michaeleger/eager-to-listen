@@ -1,4 +1,4 @@
-// DoggCatcher Queue Manager Module
+// Priority Queue Manager Module
 // Handles highly programmable playlist queuing, priority sorting, limits, and auto-cleanup.
 
 export class QueueManager {

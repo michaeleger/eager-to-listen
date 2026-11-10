@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main window: core features (events for download progress) and opening web links (Support Show) in your browser. All file and network access goes through the app's own commands.",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:allow-open-url"]
+  "permissions": ["core:default", "opener:allow-open-url", "opener:allow-default-urls"]
 }

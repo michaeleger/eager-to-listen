@@ -41,6 +41,32 @@ class PodcastDownloadManager(private val context: Context) {
         const val PREF_KEY_LAST_ORPHAN_SWEEP = "last_orphan_sweep_timestamp"
         const val DEFAULT_AUTO_DOWNLOAD_HOURS = 4
 
+        /**
+         * File name stem for an episode's download. Episode IDs are "feed address::guid" and can run
+         * past the 255-character file name limit (the download then failed every time), so the name
+         * is a fixed-length hash of the ID.
+         */
+        fun fileKey(episodeId: String): String =
+            java.security.MessageDigest.getInstance("SHA-1").digest(episodeId.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+
+        /**
+         * The value to send as If-Range when resuming: a strong ETag, else Last-Modified, else null
+         * (start over). Without it a resumed download can join two different files, because shows
+         * with dynamic ads serve different audio on each request.
+         */
+        fun resumeValidator(etag: String?, lastModified: String?): String? {
+            val e = etag?.trim().orEmpty()
+            if (e.isNotEmpty() && !e.startsWith("W/")) return e
+            return lastModified?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+        /** A web page (Wi-Fi sign-in screen, error page) is not an episode. */
+        fun isWebPage(contentType: String?): Boolean {
+            val t = contentType?.lowercase()?.trim().orEmpty()
+            return t.startsWith("text/html") || t.startsWith("application/xhtml")
+        }
+
         fun enqueueAutoDownload(context: Context) {
             val prefs = context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE)
             val enabled = prefs.getBoolean(PREF_KEY_AUTO_DOWNLOAD_ENABLED, true)
@@ -149,7 +175,7 @@ class PodcastDownloadManager(private val context: Context) {
             if (episode.audioUrl.isBlank()) return false
             // Local folder files are already on the device; nothing to download.
             if (com.eagertolisten.app.data.local.LocalFolderFormat.isLocalFeed(episode.podcastId)) return true
-            val safeId = episode.id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val safeId = fileKey(episode.id)
             val downloadsDir = getDownloadsDir()
 
             val existingMatching = downloadsDir.listFiles()?.firstOrNull { it.name.startsWith("ep_${safeId}.") && !it.name.endsWith(".part") }
@@ -159,6 +185,14 @@ class PodcastDownloadManager(private val context: Context) {
             }
 
             val partFile = File(downloadsDir, "ep_${safeId}.part")
+            // Remembers which version of the file the partial download came from
+            val validatorFile = File(downloadsDir, "ep_${safeId}.meta.part")
+            val savedValidator = try {
+                if (validatorFile.exists()) validatorFile.readText().trim().takeIf { it.isNotEmpty() } else null
+            } catch (_: Exception) {
+                null
+            }
+            if (partFile.exists() && savedValidator == null) partFile.delete()
             val existingBytes = if (partFile.exists()) partFile.length() else 0L
 
             val requestBuilder = Request.Builder()
@@ -167,6 +201,8 @@ class PodcastDownloadManager(private val context: Context) {
 
             if (existingBytes > 0) {
                 requestBuilder.header("Range", "bytes=$existingBytes-")
+                // Only continue if the file is the same one; otherwise the server sends it whole
+                savedValidator?.let { requestBuilder.header("If-Range", it) }
                 Log.d(TAG, "Resuming partial download for '${episode.title}' from $existingBytes bytes")
             }
 
@@ -181,6 +217,12 @@ class PodcastDownloadManager(private val context: Context) {
 
                 if (response.code == 416) {
                     partFile.delete()
+                    validatorFile.delete()
+                    return false
+                }
+
+                if (isWebPage(response.header("Content-Type"))) {
+                    Log.w(TAG, "Got a web page instead of audio for '${episode.title}' (Wi-Fi sign-in page?); not saving it")
                     return false
                 }
 
@@ -198,6 +240,14 @@ class PodcastDownloadManager(private val context: Context) {
 
                 val body = response.body ?: return false
                 val isAppend = response.code == 206 && existingBytes > 0
+                if (!isAppend) {
+                    // A fresh copy: note its version so an interrupted download can be continued safely
+                    val validator = resumeValidator(response.header("ETag"), response.header("Last-Modified"))
+                    try {
+                        if (validator != null) validatorFile.writeText(validator) else validatorFile.delete()
+                    } catch (_: Exception) {
+                    }
+                }
                 val outputStream = FileOutputStream(partFile, isAppend)
 
                 body.byteStream().use { input ->
@@ -212,6 +262,7 @@ class PodcastDownloadManager(private val context: Context) {
                 val targetFile = File(downloadsDir, "ep_${safeId}.$ext")
                 if (targetFile.exists()) targetFile.delete()
                 val renamed = partFile.renameTo(targetFile)
+                validatorFile.delete()
                 if (renamed) {
                     episodeDao.updateDownloadStatus(episode.id, targetFile.absolutePath, true, targetFile.length())
                     Log.i(TAG, "Successfully downloaded: '${episode.title}' (${targetFile.length() / 1024 / 1024} MB) to ${targetFile.name}")
@@ -235,9 +286,10 @@ class PodcastDownloadManager(private val context: Context) {
                 file.delete()
             }
         }
-        val safeId = episodeId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val safeId = fileKey(episodeId)
         val partFile = File(getDownloadsDir(), "ep_${safeId}.part")
         if (partFile.exists()) partFile.delete()
+        File(getDownloadsDir(), "ep_${safeId}.meta.part").delete()
 
         episodeDao.updateDownloadStatus(episodeId, null, false, null)
     }
