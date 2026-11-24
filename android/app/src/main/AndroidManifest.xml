@@ -70,19 +70,11 @@
                 <data android:mimeType="application/x-rss+xml" />
             </intent-filter>
 
-            <!-- "Subscribe on Android" buttons on podcast websites, and Apple Podcasts show links.
-                 Android 12+ only offers the app for these once you allow it under
-                 App info > Open by default; sharing the link to the app always works. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" />
-                <data android:scheme="https" />
-                <data android:host="subscribeonandroid.com" />
-                <data android:host="www.subscribeonandroid.com" />
-                <data android:host="podcasts.apple.com" />
-            </intent-filter>
+            <!-- Note: Third-party web hosts (subscribeonandroid.com, podcasts.apple.com) are
+                 intentionally NOT claimed as VIEW/BROWSABLE web links because we do not own
+                 those domains to host Digital Asset Links (assetlinks.json), which fails Google
+                 Play Console deep-link verification on Android 12+. Users can still share those
+                 links via AddShowShareTarget (ACTION_SEND) or paste them into Add show. -->
 
             <!-- App Actions Built-In Intents (BII) for Gemini / Google Assistant -->
             <meta-data

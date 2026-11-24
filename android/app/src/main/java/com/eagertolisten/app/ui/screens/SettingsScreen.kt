@@ -836,10 +836,65 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Add your free API key and secret from podcastindex.org to search the open Podcasting 2.0 directory. Search also asks Apple Podcasts unless you turn that off below.",
+                        text = "Searches your local partial Podcast Index catalog and (when configured) the live PodcastIndex.org API first, with Apple Podcasts as a fallback if nothing matches.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
+
+                    val localCatalog = remember { com.eagertolisten.app.data.podcastindex.LocalPodcastCatalog(context) }
+                    var catalogStatus by remember { mutableStateOf(localCatalog.getStatus()) }
+                    var catalogRefreshing by remember { mutableStateOf(false) }
+                    var catalogFeedback by remember { mutableStateOf<String?>(null) }
+
+                    val catalogAgeText = remember(catalogStatus) {
+                        if (!catalogStatus.available || catalogStatus.downloadedAtMs <= 0L) {
+                            "Not downloaded yet · downloads automatically on Wi-Fi"
+                        } else {
+                            val daysAgo = ((System.currentTimeMillis() - catalogStatus.downloadedAtMs).coerceAtLeast(0L) / (24L * 60L * 60L * 1000L))
+                            val ageLabel = when (daysAgo) {
+                                0L -> "updated today"
+                                1L -> "updated 1 day ago"
+                                else -> "updated $daysAgo days ago"
+                            }
+                            "${"%,d".format(catalogStatus.count)} shows cached · $ageLabel (auto-updates on Wi-Fi after 21 days)"
+                        }
+                    }
+
+                    Text(
+                        text = "Local Podcast Index Catalog: $catalogAgeText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    catalogFeedback?.let { msg ->
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = BurntOrange
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (catalogRefreshing) return@OutlinedButton
+                            catalogRefreshing = true
+                            catalogFeedback = null
+                            scope.launch {
+                                val res = localCatalog.refreshIfStale(force = true, requireUnmetered = false)
+                                catalogStatus = localCatalog.getStatus()
+                                catalogFeedback = res.message
+                                catalogRefreshing = false
+                            }
+                        },
+                        enabled = !catalogRefreshing,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BurntOrange),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (catalogRefreshing) "Updating local catalog..." else "Update Local Podcast Index Catalog Now",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
                     OutlinedButton(
                         onClick = {
@@ -885,9 +940,9 @@ fun SettingsScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Also search Apple Podcasts", color = TextPrimary, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                            Text("Apple Podcasts fallback", color = TextPrimary, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
                             Text(
-                                text = "Finds new shows Podcast Index hasn't picked up yet. Apple's directory is a closed service: turn this off and the app never contacts Apple (Apple Podcasts links then won't open). With it off, search needs your Podcast Index key.",
+                                text = "Used only when Podcast Index (local catalog + API) finds no results or fails. Turn this off and the app never contacts Apple (Apple Podcasts links then won't open).",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )

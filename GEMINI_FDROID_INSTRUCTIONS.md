@@ -45,7 +45,7 @@ Then on the emulator:
 3. With the switch **on** and no Podcast Index key: search `huberman` gives results.
 4. Switch **off**, no key: search `huberman` shows "Search has nowhere to look…". No crash.
 5. Switch **off**, with Michael's key entered: search `huberman` gives results.
-6. Switch **off**: `adb shell am start -a android.intent.action.VIEW -d "https://podcasts.apple.com/us/podcast/huberman-lab/id1545953110" -p com.eagertolisten.app`
+6. Switch **off**: `adb shell am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "https://podcasts.apple.com/us/podcast/huberman-lab/id1545953110" -n com.eagertolisten.app/.AddShowShareTarget`
    shows a message that Apple Podcasts search is off. Turn the switch back **on** and run it again:
    the Add show sheet for Huberman Lab appears.
 7. Remove the key again before the screenshots.
