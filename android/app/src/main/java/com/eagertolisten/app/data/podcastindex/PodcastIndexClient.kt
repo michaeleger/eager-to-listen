@@ -6,8 +6,6 @@ import com.eagertolisten.app.data.repository.PodcastRepository
 import com.eagertolisten.app.ui.viewmodel.SearchResult
 import com.eagertolisten.app.data.model.FeedUrl
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,20 +36,29 @@ class PodcastIndexClient(private val context: Context) {
         const val PREF_KEY_APPLE_SEARCH = "apple_search_enabled"
 
         /**
-         * Pure helper for strict fallback ordering: merge Podcast Index sources (live API + local
-         * partial catalog) first, and invoke [fallbackApple] ONLY when Podcast Index returned no
-         * results (and [appleFallbackEnabled] is true).
+         * 3-tier search waterfall designed to shield PodcastIndex.org's servers from common queries:
+         * 1. Bundled local partial Podcast Index catalog (instant, offline, zero server load).
+         * 2. Live Podcast Index API (only when local catalog has no matches and API credentials are set).
+         * 3. Apple/iTunes search fallback (only when both Podcast Index tiers return no matches and enabled).
          */
-        fun resolveWithFallback(
+        fun resolveTiered(
             query: String,
-            podcastIndexLists: List<List<SearchResult>>,
+            localResults: List<SearchResult>,
+            hasPodcastIndexApi: Boolean,
+            queryPodcastIndexApi: () -> List<SearchResult>,
             appleFallbackEnabled: Boolean,
-            fallbackApple: () -> List<SearchResult>
+            queryAppleFallback: () -> List<SearchResult>
         ): List<SearchResult> {
-            val piMerged = ShowSearch.merge(query, podcastIndexLists)
-            if (piMerged.isNotEmpty()) return piMerged
-            if (!appleFallbackEnabled) return emptyList()
-            return ShowSearch.merge(query, listOf(fallbackApple()))
+            val local = ShowSearch.merge(query, listOf(localResults))
+            if (local.isNotEmpty()) return local
+            if (hasPodcastIndexApi) {
+                val api = ShowSearch.merge(query, listOf(queryPodcastIndexApi()))
+                if (api.isNotEmpty()) return api
+            }
+            if (appleFallbackEnabled) {
+                return ShowSearch.merge(query, listOf(queryAppleFallback()))
+            }
+            return emptyList()
         }
 
         val POPULAR_CATEGORIES = listOf(
@@ -98,7 +105,7 @@ class PodcastIndexClient(private val context: Context) {
                 title = "Huberman Lab",
                 author = "Dr. Andrew Huberman",
                 feedUrl = "https://feeds.megaphone.fm/hubermanlab",
-                artworkUrl = "https://megaphone.imgix.net/podcasts/042e6144-725e-11ec-a75d-c38f702aecad/image/ee4f0b7b466ca35620792970d9bce2d2.jpg?ixlib=rails-4.3.1&max=3000&max-h=3000&fit=crop&auto=format,compress",
+                artworkUrl = "https://megaphone.imgix.net/podcasts/042e6144-725e-11ec-a75d-c38f702aecad/image/ee4f0b7b466ca35620792970d9bce2d2.jpg?ixlib=rails-4.3.1&max-w=3000&max-h=3000&fit=crop&auto=format,compress",
                 genres = listOf("Science", "Health & Fitness", "Featured")
             ),
             SearchResult(
@@ -127,13 +134,13 @@ class PodcastIndexClient(private val context: Context) {
 
     /**
      * "Apple Podcasts fallback" in Settings (on unless turned off). Used only when Podcast Index
-     * (local partial catalog + API) returns no results or fails. With this off the app never
+     * (bundled local catalog -> live API) returns no results or fails. With this off the app never
      * contacts Apple and searches Podcast Index only.
      */
     fun appleSearchEnabled(): Boolean =
         context.getSharedPreferences("eager_settings", Context.MODE_PRIVATE).getBoolean(PREF_KEY_APPLE_SEARCH, true)
 
-    /** False when Apple fallback is off, no local catalog is cached yet, and there's no Podcast Index key. */
+    /** False when Apple fallback is off, no local catalog is bundled, and there's no Podcast Index key. */
     fun hasSearchSource(): Boolean {
         val (key, secret) = getCredentials()
         return localCatalog.hasCatalog() || appleSearchEnabled() || (key != null && secret != null)
@@ -165,34 +172,27 @@ class PodcastIndexClient(private val context: Context) {
     }
 
     /**
-     * Search Podcast Index first (live API when configured + local partial Podcast Index catalog),
-     * and strictly fall back to Apple/iTunes search only when Podcast Index returns no results or
-     * fails (and Apple fallback is enabled in Settings). House shows are pinned on top for matching
-     * searches.
+     * 3-tier search waterfall:
+     * 1. Local bundled partial Podcast Index catalog handles common searches with zero server load.
+     * 2. Live Podcast Index API (when configured) runs only if the local catalog finds nothing.
+     * 3. Apple/iTunes fallback (when enabled) runs only if both Podcast Index tiers find nothing.
      */
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
         val (apiKey, apiSecret) = getCredentials()
-        val (piApi, piLocal) = coroutineScope {
-            val api = async {
-                if (apiKey != null && apiSecret != null) safely("Podcast Index API") { searchPodcastIndex(query, apiKey, apiSecret) }
-                else emptyList()
-            }
-            val local = async {
-                safely("Podcast Index Local Catalog") { localCatalog.search(query) }
-            }
-            api.await() to local.await()
-        }
-        val finalResults = resolveWithFallback(
+        val hasApi = apiKey != null && apiSecret != null
+        val piLocal = safely("Podcast Index Local Catalog") { localCatalog.search(query) }
+        val finalResults = resolveTiered(
             query = query,
-            podcastIndexLists = listOf(piApi, piLocal),
-            appleFallbackEnabled = appleSearchEnabled()
-        ) {
-            safely("Apple Podcasts fallback") { searchItunes(query) }
-        }
+            localResults = piLocal,
+            hasPodcastIndexApi = hasApi,
+            queryPodcastIndexApi = { safely("Podcast Index API") { searchPodcastIndex(query, apiKey!!, apiSecret!!) } },
+            appleFallbackEnabled = appleSearchEnabled(),
+            queryAppleFallback = { safely("Apple Podcasts fallback") { searchItunes(query) } }
+        )
         (housePins(query, category = false) + finalResults).distinctBy { FeedUrl.matchKey(it.feedUrl) }
     }
 
-    /** Browse a category: Podcast Index (API + local partial catalog) first, Apple/iTunes fallback if empty. */
+    /** Browse a category: local bundled Podcast Index catalog first -> live API -> Apple/iTunes fallback. */
     suspend fun discoverByCategory(category: String): List<SearchResult> = withContext(Dispatchers.IO) {
         val catLower = category.lowercase().trim()
         val appleTerm = when {
@@ -202,24 +202,17 @@ class PodcastIndexClient(private val context: Context) {
             else -> category
         }
         val (apiKey, apiSecret) = getCredentials()
-        val (piApi, piLocal) = coroutineScope {
-            val api = async {
-                if (apiKey != null && apiSecret != null) safely("Podcast Index API") { discoverPodcastIndexCategory(category, apiKey, apiSecret) }
-                else emptyList()
-            }
-            val local = async {
-                safely("Podcast Index Local Catalog") { localCatalog.browseCategory(category) }
-            }
-            api.await() to local.await()
-        }
+        val hasApi = apiKey != null && apiSecret != null
+        val piLocal = safely("Podcast Index Local Catalog") { localCatalog.browseCategory(category) }
         // No typed words to match against: keep each directory's own order
-        val finalResults = resolveWithFallback(
+        val finalResults = resolveTiered(
             query = "",
-            podcastIndexLists = listOf(piApi, piLocal),
-            appleFallbackEnabled = appleSearchEnabled()
-        ) {
-            safely("Apple Podcasts fallback") { searchItunes(appleTerm) }
-        }
+            localResults = piLocal,
+            hasPodcastIndexApi = hasApi,
+            queryPodcastIndexApi = { safely("Podcast Index API") { discoverPodcastIndexCategory(category, apiKey!!, apiSecret!!) } },
+            appleFallbackEnabled = appleSearchEnabled(),
+            queryAppleFallback = { safely("Apple Podcasts fallback") { searchItunes(appleTerm) } }
+        )
         (housePins(category, category = true) + finalResults).distinctBy { FeedUrl.matchKey(it.feedUrl) }
     }
 

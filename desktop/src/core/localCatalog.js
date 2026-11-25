@@ -148,17 +148,32 @@ export function browseCatalogCategory(entries, category, limit = 40) {
 }
 
 /**
- * Strict fallback ordering: merge Podcast Index results (API + bundled local partial catalog)
- * first, and invoke fallbackAppleFn() ONLY when Podcast Index returned nothing (and Apple fallback is on).
+ * 3-tier search waterfall to shield PodcastIndex.org servers from common queries:
+ * 1. Bundled local partial Podcast Index catalog (instant, offline, zero API load).
+ * 2. Live Podcast Index API (only when local catalog returns no matches and API key is configured).
+ * 3. Apple/iTunes fallback (only when both Podcast Index tiers return no matches and fallback is on).
  */
-export async function resolveWithFallback(query, podcastIndexLists, appleFallbackEnabled, fallbackAppleFn) {
-  const piMerged = mergeResults(query, podcastIndexLists);
-  if (piMerged.length > 0) {
-    return { results: piMerged, usedAppleFallback: false };
+export async function resolveTiered(
+  query,
+  localResults,
+  hasPodcastIndexApi,
+  queryPodcastIndexApiFn,
+  appleFallbackEnabled,
+  fallbackAppleFn,
+) {
+  const local = mergeResults(query, [localResults]);
+  if (local.length > 0) {
+    return { results: local, tier: 'local' };
   }
-  if (!appleFallbackEnabled) {
-    return { results: [], usedAppleFallback: false };
+  if (hasPodcastIndexApi) {
+    const api = mergeResults(query, [await queryPodcastIndexApiFn()]);
+    if (api.length > 0) {
+      return { results: api, tier: 'api' };
+    }
   }
-  const apple = await fallbackAppleFn();
-  return { results: mergeResults(query, [apple]), usedAppleFallback: true };
+  if (appleFallbackEnabled) {
+    const apple = mergeResults(query, [await fallbackAppleFn()]);
+    return { results: apple, tier: 'apple' };
+  }
+  return { results: [], tier: 'none' };
 }

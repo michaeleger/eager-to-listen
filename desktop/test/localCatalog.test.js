@@ -10,7 +10,7 @@ import {
   browseCatalogCategory,
   decodeSnapshotBytes,
   parseCatalogTsv,
-  resolveWithFallback,
+  resolveTiered,
   searchCatalog,
 } from '../src/core/localCatalog.js';
 import {
@@ -159,7 +159,7 @@ test('gzipped TSV snapshot decodes, parses, searches, and browses categories', a
   assert.deepEqual(news.map((n) => n.title), ['No Agenda Show']);
 });
 
-test('strict Apple/iTunes fallback only runs when Podcast Index returns no results', async () => {
+test('3-tier waterfall shields Podcast Index API on local hits and falls back to Apple/iTunes last', async () => {
   const localShow = {
     title: 'Huberman Lab',
     author: 'Dr. Andrew Huberman',
@@ -167,6 +167,14 @@ test('strict Apple/iTunes fallback only runs when Podcast Index returns no resul
     artworkUrl: '',
     genres: ['Science'],
     source: 'Podcast Index (Local)',
+  };
+  const apiShow = {
+    title: 'Niche Podcasting 2.0 Show',
+    author: 'Indie Host',
+    feedUrl: 'https://example.com/niche.rss',
+    artworkUrl: '',
+    genres: ['Technology'],
+    source: 'Podcast Index',
   };
   const appleShow = {
     title: 'Brand New Indie Show',
@@ -177,29 +185,83 @@ test('strict Apple/iTunes fallback only runs when Podcast Index returns no resul
     source: 'Apple Podcasts',
   };
 
+  let apiCalls = 0;
   let appleCalls = 0;
-  const hit = await resolveWithFallback('huberman', [[], [localShow]], true, async () => {
-    appleCalls++;
-    return [appleShow];
-  });
+
+  // Tier 1 hit: neither API nor Apple is called
+  const hitLocal = await resolveTiered(
+    'huberman',
+    [localShow],
+    true,
+    async () => {
+      apiCalls++;
+      return [apiShow];
+    },
+    true,
+    async () => {
+      appleCalls++;
+      return [appleShow];
+    },
+  );
+  assert.equal(apiCalls, 0);
   assert.equal(appleCalls, 0);
-  assert.equal(hit.usedAppleFallback, false);
-  assert.equal(hit.results[0].title, 'Huberman Lab');
+  assert.equal(hitLocal.tier, 'local');
+  assert.equal(hitLocal.results[0].title, 'Huberman Lab');
 
-  const fallback = await resolveWithFallback('brand new indie', [[], []], true, async () => {
-    appleCalls++;
-    return [appleShow];
-  });
-  assert.equal(appleCalls, 1);
-  assert.equal(fallback.usedAppleFallback, true);
-  assert.equal(fallback.results[0].title, 'Brand New Indie Show');
+  // Tier 1 miss -> Tier 2 hit: API called, Apple NOT called
+  const hitApi = await resolveTiered(
+    'niche',
+    [],
+    true,
+    async () => {
+      apiCalls++;
+      return [apiShow];
+    },
+    true,
+    async () => {
+      appleCalls++;
+      return [appleShow];
+    },
+  );
+  assert.equal(apiCalls, 1);
+  assert.equal(appleCalls, 0);
+  assert.equal(hitApi.tier, 'api');
+  assert.equal(hitApi.results[0].title, 'Niche Podcasting 2.0 Show');
 
-  const disabled = await resolveWithFallback('brand new indie', [[], []], false, async () => {
-    appleCalls++;
-    return [appleShow];
-  });
+  // Tier 1 miss + Tier 2 miss -> Tier 3 Apple fallback called
+  const hitApple = await resolveTiered(
+    'brand new indie',
+    [],
+    true,
+    async () => {
+      apiCalls++;
+      return [];
+    },
+    true,
+    async () => {
+      appleCalls++;
+      return [appleShow];
+    },
+  );
+  assert.equal(apiCalls, 2);
   assert.equal(appleCalls, 1);
-  assert.equal(disabled.usedAppleFallback, false);
+  assert.equal(hitApple.tier, 'apple');
+  assert.equal(hitApple.results[0].title, 'Brand New Indie Show');
+
+  // Apple disabled -> never calls Apple
+  const disabled = await resolveTiered(
+    'brand new indie',
+    [],
+    false,
+    async () => [],
+    false,
+    async () => {
+      appleCalls++;
+      return [appleShow];
+    },
+  );
+  assert.equal(appleCalls, 1);
+  assert.equal(disabled.tier, 'none');
   assert.equal(disabled.results.length, 0);
 });
 

@@ -66,7 +66,7 @@ class LocalPodcastCatalogTest {
     }
 
     @Test
-    fun strictItunesFallbackOnlyRunsWhenPodcastIndexIsEmpty() {
+    fun tieredWaterfallShieldsPodcastIndexApiAndFallsBackToApple() {
         val piLocalShow = SearchResult(
             title = "Huberman Lab",
             author = "Dr. Andrew Huberman",
@@ -74,6 +74,14 @@ class LocalPodcastCatalogTest {
             artworkUrl = "",
             genres = listOf("Science"),
             source = "Podcast Index (Local)"
+        )
+        val piApiShow = SearchResult(
+            title = "Niche Podcasting 2.0 Show",
+            author = "Indie Host",
+            feedUrl = "https://example.com/niche.rss",
+            artworkUrl = "",
+            genres = listOf("Technology"),
+            source = "Podcast Index"
         )
         val appleShow = SearchResult(
             title = "Brand New Indie Show",
@@ -84,43 +92,82 @@ class LocalPodcastCatalogTest {
             source = "Apple Podcasts"
         )
 
+        // Tier 1 hit: neither Podcast Index API nor Apple is queried
+        var apiCalled = false
         var appleCalled = false
-        val fromPi = PodcastIndexClient.resolveWithFallback(
+        val fromLocal = PodcastIndexClient.resolveTiered(
             query = "huberman",
-            podcastIndexLists = listOf(emptyList(), listOf(piLocalShow)),
-            appleFallbackEnabled = true
-        ) {
-            appleCalled = true
-            listOf(appleShow)
-        }
-        assertFalse("Apple fallback must NOT be called when Podcast Index found results", appleCalled)
-        assertEquals(1, fromPi.size)
-        assertEquals("Huberman Lab", fromPi[0].title)
+            localResults = listOf(piLocalShow),
+            hasPodcastIndexApi = true,
+            queryPodcastIndexApi = {
+                apiCalled = true
+                listOf(piApiShow)
+            },
+            appleFallbackEnabled = true,
+            queryAppleFallback = {
+                appleCalled = true
+                listOf(appleShow)
+            }
+        )
+        assertFalse("Live Podcast Index API must NOT be called when local copy matches", apiCalled)
+        assertFalse("Apple fallback must NOT be called when local copy matches", appleCalled)
+        assertEquals(listOf("Huberman Lab"), fromLocal.map { it.title })
 
-        // When Podcast Index (API + local) returns nothing, Apple fallback runs
+        // Tier 1 miss -> Tier 2 hit: live Podcast Index API is queried, Apple is NOT
+        apiCalled = false
         appleCalled = false
-        val fromApple = PodcastIndexClient.resolveWithFallback(
-            query = "brand new indie",
-            podcastIndexLists = listOf(emptyList(), emptyList()),
-            appleFallbackEnabled = true
-        ) {
-            appleCalled = true
-            listOf(appleShow)
-        }
-        assertTrue("Apple fallback MUST run when Podcast Index returns nothing", appleCalled)
-        assertEquals(1, fromApple.size)
-        assertEquals("Brand New Indie Show", fromApple[0].title)
+        val fromApi = PodcastIndexClient.resolveTiered(
+            query = "niche",
+            localResults = emptyList(),
+            hasPodcastIndexApi = true,
+            queryPodcastIndexApi = {
+                apiCalled = true
+                listOf(piApiShow)
+            },
+            appleFallbackEnabled = true,
+            queryAppleFallback = {
+                appleCalled = true
+                listOf(appleShow)
+            }
+        )
+        assertTrue("Live Podcast Index API MUST be called when local copy misses", apiCalled)
+        assertFalse("Apple fallback must NOT be called when live Podcast Index API matches", appleCalled)
+        assertEquals(listOf("Niche Podcasting 2.0 Show"), fromApi.map { it.title })
 
-        // When Apple fallback is disabled, never call Apple even when Podcast Index is empty
+        // Tier 1 miss + Tier 2 miss -> Tier 3 Apple fallback runs
+        apiCalled = false
         appleCalled = false
-        val none = PodcastIndexClient.resolveWithFallback(
+        val fromApple = PodcastIndexClient.resolveTiered(
             query = "brand new indie",
-            podcastIndexLists = listOf(emptyList(), emptyList()),
-            appleFallbackEnabled = false
-        ) {
-            appleCalled = true
-            listOf(appleShow)
-        }
+            localResults = emptyList(),
+            hasPodcastIndexApi = true,
+            queryPodcastIndexApi = {
+                apiCalled = true
+                emptyList()
+            },
+            appleFallbackEnabled = true,
+            queryAppleFallback = {
+                appleCalled = true
+                listOf(appleShow)
+            }
+        )
+        assertTrue(apiCalled)
+        assertTrue("Apple fallback MUST run when both Podcast Index tiers return nothing", appleCalled)
+        assertEquals(listOf("Brand New Indie Show"), fromApple.map { it.title })
+
+        // When Apple fallback is disabled, never call Apple even when both Podcast Index tiers miss
+        appleCalled = false
+        val none = PodcastIndexClient.resolveTiered(
+            query = "brand new indie",
+            localResults = emptyList(),
+            hasPodcastIndexApi = false,
+            queryPodcastIndexApi = { emptyList() },
+            appleFallbackEnabled = false,
+            queryAppleFallback = {
+                appleCalled = true
+                listOf(appleShow)
+            }
+        )
         assertFalse("Apple fallback must NOT run when disabled in Settings", appleCalled)
         assertTrue(none.isEmpty())
     }

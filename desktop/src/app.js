@@ -371,15 +371,14 @@ async function searchDirectory(term, { category = null } = {}) {
     return [];
   });
   const appleTerm = category ? ({ 'Self-Help': 'self help', 'Health & Fitness': 'health wellness' }[category] || category) : term;
-  const piApi = hasPodcastIndex()
-    ? await safely('Podcast Index', podcastIndex(category ? `podcasts/bycategory?cat=${encodeURIComponent(category)}&max=40` : `search/byterm?q=${encodeURIComponent(term)}&max=40`))
-    : [];
   const piLocal = hasLocalCatalog()
     ? (category ? C.browseCatalogCategory(state.catalogEntries, category, 40) : C.searchCatalog(state.catalogEntries, term, 40))
     : [];
-  const { results, usedAppleFallback } = await C.resolveWithFallback(
+  const { results, tier } = await C.resolveTiered(
     category ? '' : term,
-    [piApi, piLocal],
+    piLocal,
+    hasPodcastIndex(),
+    () => safely('Podcast Index', podcastIndex(category ? `podcasts/bycategory?cat=${encodeURIComponent(category)}&max=40` : `search/byterm?q=${encodeURIComponent(term)}&max=40`)),
     appleSearchOn(),
     () => safely('Apple Podcasts', appleSearch(appleTerm)),
   );
@@ -389,12 +388,14 @@ async function searchDirectory(term, { category = null } = {}) {
   if (q.includes('no agenda') || (category && (q.includes('news') || q.includes('current')))) pins.push(FEATURED[1]);
   if (q.includes('eager') || q === 'health' || q.includes('wellness') || q.includes('self help') || q.includes('self-help') || (category && (q.includes('health') || q.includes('fitness')))) pins.push(FEATURED[0]);
   state.searchResults = [...pins, ...results.filter((r) => !pins.some((p) => sameFeed(p.feedUrl, r.feedUrl)))];
-  state.searchSource = usedAppleFallback
-    ? 'Apple Podcasts (fallback)'
-    : [
-        hasPodcastIndex() && !failed.includes('Podcast Index') && piApi.length ? 'Podcast Index API' : '',
-        piLocal.length ? 'Podcast Index (Local)' : '',
-      ].filter(Boolean).join(' + ') || 'Podcast Index';
+  state.searchSource =
+    tier === 'local'
+      ? 'Podcast Index (Local)'
+      : tier === 'api'
+        ? 'Podcast Index API'
+        : tier === 'apple'
+          ? 'Apple Podcasts (fallback)'
+          : 'Podcast Index';
   if (failed.length) toast(`${failed.join(' and ')} didn't answer${results.length ? '; showing the rest' : '. Check your connection'}.`, 6000);
   render();
 }
