@@ -49,7 +49,9 @@ class LocalPodcastCatalog(private val context: Context) {
 
     companion object {
         private const val TAG = "LocalPodcastCatalog"
-        const val BUNDLED_ASSET_NAME = "podcastindex-catalog.tsv.gz"
+        // Android's aapt2 automatically decompresses .gz files in assets/ and strips the ".gz" suffix,
+        // so check the stripped name first and fall back to the .gz name.
+        val BUNDLED_ASSET_CANDIDATES = listOf("podcastindex-catalog.tsv", "podcastindex-catalog.tsv.gz")
 
         /** Hard limits protecting normal phone storage and RAM against oversized/corrupt snapshots. */
         const val MAX_IMPORT_ROWS = 100_000
@@ -157,11 +159,18 @@ class LocalPodcastCatalog(private val context: Context) {
     internal fun catalogDir(): File = File(context.filesDir, "catalog").apply { if (!exists()) mkdirs() }
     internal fun dbFile(): File = File(catalogDir(), "podcastindex_catalog.db")
 
-    fun hasBundledAsset(): Boolean = try {
-        context.assets.open(BUNDLED_ASSET_NAME).use { true }
-    } catch (_: Exception) {
-        false
+    private fun openBundledAsset(): InputStream? {
+        for (name in BUNDLED_ASSET_CANDIDATES) {
+            try {
+                return context.assets.open(name)
+            } catch (_: Exception) {
+                // try next candidate
+            }
+        }
+        return null
     }
+
+    fun hasBundledAsset(): Boolean = openBundledAsset()?.use { true } ?: false
 
     fun hasCatalog(): Boolean {
         val f = dbFile()
@@ -189,7 +198,7 @@ class LocalPodcastCatalog(private val context: Context) {
 
     private fun readBundledHeader(): CatalogHeader? {
         return try {
-            context.assets.open(BUNDLED_ASSET_NAME).use { raw ->
+            openBundledAsset()?.use { raw ->
                 val buffered = BufferedInputStream(raw, 8 * 1024)
                 buffered.mark(2)
                 val b0 = buffered.read()
@@ -206,7 +215,7 @@ class LocalPodcastCatalog(private val context: Context) {
     }
 
     /**
-     * Unpacks and indexes the build-time bundled APK asset (`assets/podcastindex-catalog.tsv.gz`)
+     * Unpacks and indexes the build-time bundled APK asset (`assets/podcastindex-catalog.tsv` / `.tsv.gz`)
      * into local SQLite + FTS4 storage if missing or updated by a newer app build. Zero network I/O.
      */
     fun ensureInstalled(): Boolean {
@@ -222,11 +231,11 @@ class LocalPodcastCatalog(private val context: Context) {
                 return true
             }
             return try {
-                context.assets.open(BUNDLED_ASSET_NAME).use { stream ->
+                openBundledAsset()?.use { stream ->
                     val count = importFromStream(stream)
                     Log.i(TAG, "Indexed bundled Podcast Index catalog: $count shows")
                     count > 0
-                }
+                } ?: hasDb
             } catch (_: FileNotFoundException) {
                 hasDb
             } catch (e: Exception) {
