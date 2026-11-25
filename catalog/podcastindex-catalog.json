@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "generatedAt": 1795589013898,
+  "count": 25000,
+  "limit": 25000,
+  "source": "podcastindex.org",
+  "file": "podcastindex-catalog.tsv.gz",
+  "gzipBytes": 2935545,
+  "uncompressedBytes": 7596627,
+  "sha256": "71ada4c65237e098530c9ce957853d368ca4e5a3a9877402a20acf58bdc02ea1"
+}
