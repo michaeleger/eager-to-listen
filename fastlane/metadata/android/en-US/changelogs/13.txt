@@ -1,5 +1,5 @@
-• Jumped from 0.9.2 directly to 0.9.4 (0.9.3 was an internal test build; all its fixes are included)
-• Built-in 25,000-show Podcast Index catalog for instant offline search, with live Podcast Index API + optional Apple Podcasts fallback
-• Open podcast & RSS links directly in the app, or Share/paste any show link (P2 default preview)
-• Faster Google Drive sync, Android Auto & dead-zone playback recovery, screen-off streaming fix, and Creator Studio Drive archive
+• Moved directly from 0.9.2 to 0.9.4 (0.9.3 was skipped publicly; all its fixes are included)
+• Built-in 25,000-show Podcast Index catalog for instant offline search, plus live API and optional Apple Podcasts fallback
+• Open podcast & RSS links directly in the app, or Share/paste any show link (P2 preview)
+• Faster Google Drive sync, Android Auto & dead-zone playback recovery, screen-off streaming fix, and Creator Studio archive
 • Now GPL-3.0 free software
