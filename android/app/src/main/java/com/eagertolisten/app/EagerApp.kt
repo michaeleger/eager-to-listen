@@ -30,9 +30,12 @@ class EagerApp : Application() {
         com.eagertolisten.app.diagnostics.CrashReporter.install(this)
         com.eagertolisten.app.settings.PlayerSettings.init(this)
 
-        // Keep the local partial Podcast Index catalog fresh on Wi-Fi when missing or > 21 days old
-        com.eagertolisten.app.worker.CatalogUpdateWorker.schedulePeriodicCheck(this)
-        com.eagertolisten.app.worker.CatalogUpdateWorker.enqueueIfStale(this)
+        // Index the build-time bundled partial Podcast Index catalog locally (zero network I/O)
+        appScope.launch(Dispatchers.IO) {
+            try {
+                com.eagertolisten.app.data.podcastindex.LocalPodcastCatalog(this@EagerApp).ensureInstalled()
+            } catch (_: Exception) {}
+        }
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {

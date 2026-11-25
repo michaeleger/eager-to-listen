@@ -44,7 +44,6 @@ const state = {
   searchSource: '',
   catalogEntries: [],
   catalogMeta: null,
-  catalogRefreshing: false,
   queueTab: 'queue', // queue | hot | unplayed | played
   share: null, // { ids, markdown, savedPath } while the share panel is open
   editingNote: null, // bookmark id whose note is being edited
@@ -314,64 +313,21 @@ const hasLocalCatalog = () => state.catalogEntries.length > 0;
 
 async function loadLocalCatalog() {
   try {
-    const disk = await invoke('catalog_load');
-    if (!disk) return;
-    const meta = JSON.parse(disk.metaJson);
-    const { entries } = C.parseCatalogTsv(disk.tsv);
-    state.catalogEntries = entries;
-    state.catalogMeta = { ...meta, count: entries.length };
-    if (state.view === 'add' || state.view === 'settings') render();
-  } catch (e) {
-    console.warn('Could not load local catalog:', e);
-  }
-}
-
-async function refreshCatalogIfStale({ force = false, quiet = false } = {}) {
-  if (state.catalogRefreshing) return;
-  const now = Date.now();
-  if (!force && !C.isCatalogStale(state.catalogMeta, now)) return;
-  state.catalogRefreshing = true;
-  if (state.view === 'settings') render();
-  try {
-    const res = await invoke('catalog_fetch', {
-      url: C.DEFAULT_SNAPSHOT_URL,
-      etag: !force && state.catalogMeta?.etag ? state.catalogMeta.etag : null,
-      lastModified: !force && state.catalogMeta?.lastModified ? state.catalogMeta.lastModified : null,
-    });
-    if (res.status === 304 && state.catalogMeta) {
-      const updatedMeta = { ...state.catalogMeta, downloadedAt: now };
-      state.catalogMeta = updatedMeta;
-      const disk = await invoke('catalog_load');
-      if (disk?.tsv) {
-        await invoke('catalog_save', { metaJson: JSON.stringify(updatedMeta), tsv: disk.tsv });
-      }
-      if (!quiet) toast('Local Podcast Index catalog is already up to date.');
-      return;
-    }
-    if (res.status < 200 || res.status >= 300) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const tsv = await C.decodeSnapshotBytes(res.bytes);
+    const res = await fetch(C.BUNDLED_CATALOG_URL);
+    if (!res.ok) return;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const tsv = await C.decodeSnapshotBytes(bytes);
     const { header, entries } = C.parseCatalogTsv(tsv);
-    if (!entries.length) throw new Error('Snapshot contained 0 shows');
-    const meta = {
-      version: header?.version || 1,
-      generatedAt: header?.generatedAt || now,
-      downloadedAt: now,
-      count: entries.length,
-      etag: res.etag || null,
-      lastModified: res.lastModified || null,
-    };
-    await invoke('catalog_save', { metaJson: JSON.stringify(meta), tsv });
+    if (!entries.length) return;
     state.catalogEntries = entries;
-    state.catalogMeta = meta;
-    if (!quiet) toast(`Updated local catalog (${entries.length.toLocaleString()} shows).`);
-  } catch (e) {
-    console.warn('Local catalog refresh failed:', e);
-    if (!quiet) toast(`Couldn't update local catalog: ${e.message || e}`, 6000);
-  } finally {
-    state.catalogRefreshing = false;
+    state.catalogMeta = {
+      version: header?.version || 1,
+      generatedAt: header?.generatedAt || 0,
+      count: entries.length,
+    };
     if (state.view === 'add' || state.view === 'settings') render();
+  } catch (e) {
+    console.warn('Could not load bundled local catalog:', e);
   }
 }
 // "Also search Apple Podcasts" (Settings), on unless turned off. Off: the app never contacts Apple.
@@ -403,7 +359,7 @@ async function searchDirectory(term, { category = null } = {}) {
     return;
   }
   if (!hasPodcastIndex() && !hasLocalCatalog() && !appleSearchOn()) {
-    toast('Search has nowhere to look: update the local catalog, add a Podcast Index key, or turn on Apple Podcasts fallback in Settings.', 7000);
+    toast('Search has nowhere to look: add a Podcast Index key or turn on Apple Podcasts fallback in Settings.', 7000);
     return;
   }
   state.searchResults = 'loading';
@@ -1274,11 +1230,11 @@ function viewSettings() {
       <label for="pi-secret">API secret</label><input id="pi-secret" type="password" name="podcastIndexSecret" value="${esc(s.podcastIndexSecret || '')}" autocomplete="off" />
       <label for="pi-apple">Apple Podcasts</label><label class="check"><input id="pi-apple" type="checkbox" name="appleSearch" ${s.appleSearch !== false ? 'checked' : ''} /> Apple Podcasts fallback</label>
       <span></span><p class="sub" style="margin:0">Used only when Podcast Index (local catalog + API) finds no results or fails. Turn this off and the app never contacts Apple (Apple Podcasts links then won't open).</p>
-      <label>Local catalog</label><div><p class="sub" style="margin:0 0 6px">${
+      <label>Local catalog</label><div><p class="sub" style="margin:0">${
         state.catalogMeta?.count
-          ? `${state.catalogMeta.count.toLocaleString()} shows cached · updated ${Math.max(0, Math.floor((Date.now() - (state.catalogMeta.downloadedAt || 0)) / 86_400_000))} day(s) ago (auto-updates after 21 days)`
-          : 'Not downloaded yet (downloads automatically when online)'
-      }</p><button class="ghost small" type="button" data-action="refresh-catalog" ${state.catalogRefreshing ? 'disabled' : ''}>${state.catalogRefreshing ? 'Updating…' : 'Update local catalog now'}</button></div>
+          ? `${state.catalogMeta.count.toLocaleString()} shows bundled${state.catalogMeta.generatedAt ? ` · snapshot ${new Date(state.catalogMeta.generatedAt).toLocaleDateString()}` : ''} (refreshed at build time when > 21 days old)`
+          : 'Bundled Podcast Index catalog not included in this build'
+      }</p></div>
       <span></span><div><button class="btn" type="submit">Save</button></div>
     </form>
     <h2>Playback problems</h2>
@@ -1586,9 +1542,6 @@ document.addEventListener('click', (e) => {
     case 'browse-category':
       searchDirectory('', { category: el.dataset.cat });
       break;
-    case 'refresh-catalog':
-      refreshCatalogIfStale({ force: true, quiet: false });
-      break;
     case 'find-sync-folder':
       findSyncFolder();
       break;
@@ -1740,11 +1693,10 @@ async function start() {
     if (state.view === 'settings') render();
   });
   if (state.lib.settings.syncFolder) await syncNow({ quiet: true });
-  loadLocalCatalog().then(() => refreshCatalogIfStale({ quiet: true }));
+  loadLocalCatalog();
   refreshAll({ quiet: true });
   setInterval(() => syncSoon(0), 15 * 60_000);
   setInterval(() => refreshAll({ quiet: true }), 60 * 60_000);
-  setInterval(() => refreshCatalogIfStale({ quiet: true }), 24 * 60 * 60_000);
   setInterval(renderChrome, 60_000);
 }
 

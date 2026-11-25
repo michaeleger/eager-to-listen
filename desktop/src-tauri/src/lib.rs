@@ -166,102 +166,6 @@ async fn podcastindex_get(path: String, api_key: String, api_secret: String) -> 
     Ok(body)
 }
 
-// ---------------------------------------------------------------- local Podcast Index catalog
-
-const CATALOG_TSV: &str = "podcastindex_catalog.tsv";
-const CATALOG_META: &str = "podcastindex_catalog_meta.json";
-const MAX_CATALOG_DOWNLOAD_BYTES: usize = 25 * 1024 * 1024;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CatalogDiskData {
-    meta_json: String,
-    tsv: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CatalogFetchResult {
-    status: u16,
-    bytes: Vec<u8>,
-    etag: Option<String>,
-    last_modified: Option<String>,
-}
-
-#[tauri::command]
-async fn catalog_load(app: AppHandle) -> CmdResult<Option<CatalogDiskData>> {
-    let dir = data_dir(&app)?;
-    let meta_path = dir.join(CATALOG_META);
-    let tsv_path = dir.join(CATALOG_TSV);
-    let (Ok(meta_json), Ok(tsv)) = (
-        tokio::fs::read_to_string(&meta_path).await,
-        tokio::fs::read_to_string(&tsv_path).await,
-    ) else {
-        return Ok(None);
-    };
-    if serde_json::from_str::<serde_json::Value>(&meta_json).is_err() || tsv.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(CatalogDiskData { meta_json, tsv }))
-}
-
-#[tauri::command]
-async fn catalog_save(app: AppHandle, meta_json: String, tsv: String) -> CmdResult<()> {
-    serde_json::from_str::<serde_json::Value>(&meta_json)
-        .map_err(|e| format!("Invalid catalog metadata JSON: {e}"))?;
-    let dir = data_dir(&app)?;
-    write_atomic(&dir.join(CATALOG_TSV), tsv.as_bytes()).await?;
-    write_atomic(&dir.join(CATALOG_META), meta_json.as_bytes()).await
-}
-
-#[tauri::command]
-async fn catalog_fetch(
-    url: String,
-    etag: Option<String>,
-    last_modified: Option<String>,
-) -> CmdResult<CatalogFetchResult> {
-    let parsed = reqwest::Url::parse(url.trim()).map_err(|_| "That isn't a web address.".to_string())?;
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err("Only http and https addresses work here.".into());
-    }
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(err)?;
-    let mut req = client.get(parsed);
-    if let Some(e) = etag.filter(|s| !s.is_empty()) {
-        req = req.header(reqwest::header::IF_NONE_MATCH, e);
-    }
-    if let Some(m) = last_modified.filter(|s| !s.is_empty()) {
-        req = req.header(reqwest::header::IF_MODIFIED_SINCE, m);
-    }
-    let resp = req.send().await.map_err(|e| format!("Couldn't reach catalog URL: {e}"))?;
-    let status = resp.status().as_u16();
-    let header = |h: reqwest::header::HeaderName| {
-        resp.headers().get(h).and_then(|v| v.to_str().ok()).map(String::from)
-    };
-    let etag = header(reqwest::header::ETAG);
-    let last_modified = header(reqwest::header::LAST_MODIFIED);
-
-    if status == 304 {
-        return Ok(CatalogFetchResult { status, bytes: Vec::new(), etag, last_modified });
-    }
-
-    let mut bytes = Vec::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(err)?;
-        if bytes.len() + chunk.len() > MAX_CATALOG_DOWNLOAD_BYTES {
-            return Err("Catalog snapshot exceeds maximum allowed size.".into());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(CatalogFetchResult { status, bytes, etag, last_modified })
-}
-
 // ---------------------------------------------------------------- sync target
 //
 // A target is either a local folder ("/home/me/Drive/EagerToListen") or an rclone remote path
@@ -777,9 +681,6 @@ pub fn run() {
             sync_delete,
             rclone_status,
             podcastindex_get,
-            catalog_load,
-            catalog_save,
-            catalog_fetch,
             archive_write,
             save_text_file,
             sync_find,

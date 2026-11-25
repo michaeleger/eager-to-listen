@@ -135,3 +135,20 @@ dependencies {
     androidTestImplementation 'androidx.test:core:1.6.1'
     androidTestImplementation 'androidx.arch.core:core-testing:2.2.0'
 }
+
+// Build-time partial Podcast Index catalog refresh (only downloads if missing or > 21 days old;
+// never downloaded on end-user devices). Pass -PskipCatalogUpdate=true to skip in offline builds.
+def skipCatalogUpdate = project.hasProperty('skipCatalogUpdate') && project.property('skipCatalogUpdate').toString().toBoolean()
+def catalogScriptFile = rootProject.file('../scripts/build-podcastindex-catalog.mjs')
+def repoRootDir = rootProject.file('..')
+
+tasks.register('updateBundledPodcastCatalog', Exec) {
+    onlyIf { !skipCatalogUpdate && catalogScriptFile.exists() }
+    workingDir = repoRootDir
+    commandLine = ['node', catalogScriptFile.absolutePath, '--sync-apps', '--offline-ok']
+    ignoreExitValue = true
+}
+
+tasks.named('preBuild').configure {
+    dependsOn 'updateBundledPodcastCatalog'
+}

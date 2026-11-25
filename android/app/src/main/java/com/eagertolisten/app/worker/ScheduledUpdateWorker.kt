@@ -83,11 +83,6 @@ class ScheduledUpdateWorker(
                 PodcastDownloadManager.enqueueAutoDownload(appContext)
             }
 
-            // 4. Refresh local partial Podcast Index DB if > 21 days old (unmetered Wi-Fi only)
-            val catalogResult = com.eagertolisten.app.data.podcastindex.LocalPodcastCatalog(appContext)
-                .refreshIfStale(force = false, requireUnmetered = true)
-            Log.i(TAG, "Local catalog check: ${catalogResult.outcome} (${catalogResult.message})")
-
             prefs.edit()
                 .putLong(PREF_KEY_LAST_SCHEDULED_RUN, System.currentTimeMillis())
                 .apply()

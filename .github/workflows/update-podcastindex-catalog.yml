@@ -1,22 +1,27 @@
-name: Update Podcast Index Local Catalog
+name: Refresh Bundled Podcast Index Catalog
 
 on:
   schedule:
-    # Weekly on Mondays at 06:00 UTC so devices refreshing every 21 days always get a fresh snapshot
+    # Weekly check on Mondays at 06:00 UTC; script only downloads & updates if > 21 days old
     - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       limit:
-        description: 'Number of top active podcasts to include (5000 to 100000)'
+        description: 'Number of top active podcasts to bundle (5000 to 100000)'
         required: false
-        default: '35000'
+        default: '25000'
         type: string
+      force:
+        description: 'Force refresh even if the bundled catalog is <= 21 days old'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 jobs:
-  build-and-publish:
+  refresh-bundled-catalog:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -27,28 +32,25 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Build slim Podcast Index catalog snapshot
+      - name: Refresh bundled Podcast Index catalog if > 21 days old
         run: |
-          LIMIT="${{ github.event.inputs.limit || '35000' }}"
-          node scripts/build-podcastindex-catalog.mjs --limit "$LIMIT" --out-dir dist/podcastindex-catalog
+          LIMIT="${{ github.event.inputs.limit || '25000' }}"
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          node scripts/build-podcastindex-catalog.mjs --sync-apps --limit "$LIMIT" $FORCE_FLAG
 
-      - name: Publish snapshot to rolling GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit updated bundled catalog if changed
         run: |
-          TAG="podcastindex-catalog"
-          META=$(cat dist/podcastindex-catalog/podcastindex-catalog.json)
-          NOTES=$(printf "Rolling partial PodcastIndex.org directory snapshot for Eager to Listen (Android & Desktop).\n\nClients refresh this snapshot automatically when their local copy is more than 21 days old.\n\n\`\`\`json\n%s\n\`\`\`" "$META")
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" \
-              dist/podcastindex-catalog/podcastindex-catalog.tsv.gz \
-              dist/podcastindex-catalog/podcastindex-catalog.json \
-              --clobber
-            gh release edit "$TAG" --notes "$NOTES"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/app/src/main/assets/podcastindex-catalog.tsv.gz \
+                  desktop/src/assets/podcastindex-catalog.tsv.gz \
+                  catalog/podcastindex-catalog.json
+          if git diff --cached --quiet; then
+            echo "Bundled catalog unchanged (<= 21 days old)."
           else
-            gh release create "$TAG" \
-              dist/podcastindex-catalog/podcastindex-catalog.tsv.gz \
-              dist/podcastindex-catalog/podcastindex-catalog.json \
-              --title "Podcast Index Local Catalog Snapshot" \
-              --notes "$NOTES"
+            git commit -m "chore(catalog): refresh bundled Podcast Index partial snapshot"
+            git push
           fi

@@ -7,11 +7,12 @@
   "description": "Eager to Listen for Linux and Windows (Tauri).",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "update-catalog": "node ../scripts/build-podcastindex-catalog.mjs --sync-apps --offline-ok",
     "dev": "tauri dev",
-    "build": "tauri build --bundles appimage",
+    "build": "npm run update-catalog && tauri build --bundles appimage",
     "tauri": "tauri",
-    "build:deb": "tauri build --bundles deb",
-    "build:windows": "tauri build --bundles nsis"
+    "build:deb": "npm run update-catalog && tauri build --bundles deb",
+    "build:windows": "npm run update-catalog && tauri build --bundles nsis"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

@@ -11,15 +11,14 @@ import org.junit.Test
 class LocalPodcastCatalogTest {
 
     @Test
-    fun stalenessFollows21DayBoundary() {
-        val now = 1_760_000_000_000L
-        val dayMs = 24L * 60L * 60L * 1000L
+    fun needsUnpackDetectsMissingOrUpdatedBundledSnapshot() {
+        val v1 = 1_750_000_000_000L
+        val v2 = 1_760_000_000_000L
 
-        assertTrue("Missing DB is always stale", LocalPodcastCatalog.isStale(hasDb = false, downloadedAtMs = now, nowMs = now))
-        assertTrue("Zero timestamp is stale", LocalPodcastCatalog.isStale(hasDb = true, downloadedAtMs = 0L, nowMs = now))
-        assertFalse("20 days old is fresh", LocalPodcastCatalog.isStale(hasDb = true, downloadedAtMs = now - 20 * dayMs, nowMs = now))
-        assertFalse("Exactly 21 days old is still fresh", LocalPodcastCatalog.isStale(hasDb = true, downloadedAtMs = now - 21 * dayMs, nowMs = now))
-        assertTrue("21 days + 1 ms is stale", LocalPodcastCatalog.isStale(hasDb = true, downloadedAtMs = now - 21 * dayMs - 1L, nowMs = now))
+        assertTrue("Missing DB must unpack", LocalPodcastCatalog.needsUnpack(hasDb = false, installedGeneratedAtMs = v1, bundledGeneratedAtMs = v1))
+        assertTrue("Zero installed timestamp must unpack", LocalPodcastCatalog.needsUnpack(hasDb = true, installedGeneratedAtMs = 0L, bundledGeneratedAtMs = v1))
+        assertFalse("Same bundled timestamp skips unpack", LocalPodcastCatalog.needsUnpack(hasDb = true, installedGeneratedAtMs = v1, bundledGeneratedAtMs = v1))
+        assertTrue("Newer bundled snapshot triggers unpack", LocalPodcastCatalog.needsUnpack(hasDb = true, installedGeneratedAtMs = v1, bundledGeneratedAtMs = v2))
     }
 
     @Test
@@ -33,12 +32,12 @@ class LocalPodcastCatalogTest {
     @Test
     fun parsesTsvHeaderAndRowsCleanly() {
         val header = LocalPodcastCatalog.parseHeader(
-            """# {"version":1,"generatedAt":1750000000000,"count":35000,"source":"podcastindex.org"}"""
+            """# {"version":1,"generatedAt":1750000000000,"count":25000,"source":"podcastindex.org"}"""
         )
         assertNotNull(header)
         assertEquals(1, header!!.version)
         assertEquals(1750000000000L, header.generatedAt)
-        assertEquals(35000, header.count)
+        assertEquals(25000, header.count)
 
         val row = LocalPodcastCatalog.parseRow(
             "Huberman Lab\tDr. Andrew Huberman\thttps://feeds.megaphone.fm/hubermanlab\thttps://img/h.jpg\tScience|Health & Fitness\t1545953110\tguid-h\t1750000000"

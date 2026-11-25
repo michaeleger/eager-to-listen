@@ -1,13 +1,10 @@
-// Local partial copy of the PodcastIndex.org directory (5,000 to 100,000 top active shows).
-// Mirrors android/.../data/podcastindex/LocalPodcastCatalog.kt rule for rule; change both together.
+// Bundled local partial copy of the PodcastIndex.org directory (5,000 to 100,000 top active shows).
+// Updated at BUILD TIME (scripts/build-podcastindex-catalog.mjs) when > 21 days old; never
+// downloaded from end-user devices. Mirrors android/.../data/podcastindex/LocalPodcastCatalog.kt.
 
 import { mergeResults } from './showSearch.js';
 
-export const DEFAULT_SNAPSHOT_URL =
-  'https://github.com/michaeleger/eager-to-listen/releases/download/podcastindex-catalog/podcastindex-catalog.tsv.gz';
-
-export const MAX_CATALOG_AGE_DAYS = 21;
-export const MAX_CATALOG_AGE_MS = MAX_CATALOG_AGE_DAYS * 24 * 60 * 60 * 1000;
+export const BUNDLED_CATALOG_URL = './assets/podcastindex-catalog.tsv.gz';
 export const MAX_IMPORT_ROWS = 100_000;
 
 const norm = (s) =>
@@ -19,12 +16,6 @@ const norm = (s) =>
     .trim();
 
 export { norm as normalizeForIndex };
-
-/** True when no local DB is cached or the last download/verification is older than 21 days. */
-export function isCatalogStale(meta, now = Date.now()) {
-  if (!meta || !meta.count || !meta.downloadedAt || meta.downloadedAt <= 0) return true;
-  return now - meta.downloadedAt > MAX_CATALOG_AGE_MS;
-}
 
 /** Decode either a gzipped (.tsv.gz) or plain UTF-8 snapshot byte buffer into text. */
 export async function decodeSnapshotBytes(input) {
@@ -90,7 +81,6 @@ export function parseCatalogTsv(tsvText) {
       newestEpisodeAt: newestSec * 1000,
       dead: false,
       source: 'Podcast Index (Local)',
-      // Pre-normalized padded search fields for fast prefix matching without rebuilding per query
       _haystack: ` ${norm(title)} ${norm(author)} ${norm(rawCats.replace(/\|/g, ' '))} `,
       _cats: ` ${norm(rawCats.replace(/\|/g, ' '))} `,
     });
@@ -158,8 +148,8 @@ export function browseCatalogCategory(entries, category, limit = 40) {
 }
 
 /**
- * Strict fallback ordering: merge Podcast Index results (API + local partial catalog) first,
- * and invoke fallbackAppleFn() ONLY when Podcast Index returned nothing (and Apple fallback is on).
+ * Strict fallback ordering: merge Podcast Index results (API + bundled local partial catalog)
+ * first, and invoke fallbackAppleFn() ONLY when Podcast Index returned nothing (and Apple fallback is on).
  */
 export async function resolveWithFallback(query, podcastIndexLists, appleFallbackEnabled, fallbackAppleFn) {
   const piMerged = mergeResults(query, podcastIndexLists);

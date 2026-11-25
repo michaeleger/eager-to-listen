@@ -2,18 +2,13 @@ package com.eagertolisten.app.data.podcastindex
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
-import com.eagertolisten.app.data.repository.PodcastRepository
 import com.eagertolisten.app.ui.viewmodel.SearchResult
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.Request
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.text.Normalizer
@@ -21,11 +16,11 @@ import java.util.zip.GZIPInputStream
 
 /**
  * Local partial copy of the PodcastIndex.org directory (5,000 to 100,000 top active podcasts)
- * stored in a compact read-only SQLite + FTS4 database inside app storage.
+ * bundled into the APK at build time (`assets/podcastindex-catalog.tsv.gz`) and indexed into a
+ * compact read-only SQLite + FTS4 database inside app storage.
  *
- * Refreshed automatically when missing or older than [MAX_AGE_DAYS] (21 days), using conditional
- * HTTP headers (ETag / If-Modified-Since) and unmetered Wi-Fi constraints in background workers
- * to respect normal device storage, memory, and mobile data limitations.
+ * End-user devices NEVER download the Podcast Index catalog over the network. The build-time
+ * pipeline refreshes the bundled snapshot whenever it is older than 21 days.
  */
 class LocalPodcastCatalog(private val context: Context) {
 
@@ -49,57 +44,33 @@ class LocalPodcastCatalog(private val context: Context) {
     data class CatalogStatus(
         val available: Boolean,
         val count: Int,
-        val downloadedAtMs: Long,
-        val generatedAtMs: Long,
-        val isStale: Boolean
-    )
-
-    enum class RefreshOutcome {
-        UP_TO_DATE,
-        UPDATED,
-        NOT_MODIFIED,
-        SKIPPED_METERED,
-        FAILED
-    }
-
-    data class RefreshResult(
-        val outcome: RefreshOutcome,
-        val count: Int = 0,
-        val message: String = ""
+        val generatedAtMs: Long
     )
 
     companion object {
         private const val TAG = "LocalPodcastCatalog"
-
-        const val DEFAULT_SNAPSHOT_URL =
-            "https://github.com/michaeleger/eager-to-listen/releases/download/podcastindex-catalog/podcastindex-catalog.tsv.gz"
-
-        const val MAX_AGE_DAYS = 21L
-        const val MAX_AGE_MS = MAX_AGE_DAYS * 24L * 60L * 60L * 1000L
+        const val BUNDLED_ASSET_NAME = "podcastindex-catalog.tsv.gz"
 
         /** Hard limits protecting normal phone storage and RAM against oversized/corrupt snapshots. */
         const val MAX_IMPORT_ROWS = 100_000
         const val MAX_UNCOMPRESSED_BYTES = 64L * 1024L * 1024L
 
-        const val PREF_KEY_DOWNLOADED_AT = "pi_catalog_downloaded_at"
         const val PREF_KEY_GENERATED_AT = "pi_catalog_generated_at"
         const val PREF_KEY_COUNT = "pi_catalog_count"
-        const val PREF_KEY_ETAG = "pi_catalog_etag"
-        const val PREF_KEY_LAST_MODIFIED = "pi_catalog_last_modified"
-        const val PREF_KEY_SNAPSHOT_URL = "pi_catalog_snapshot_url"
 
         private val MARKS = Regex("\\p{M}+")
         private val NON_ALNUM = Regex("[^a-z0-9]+")
         private val dbLock = Any()
 
-        /** Returns true when no local DB is present or the last update/check is older than 21 days. */
-        fun isStale(
+        /** True when the on-device SQLite index is missing or older than the APK's bundled snapshot. */
+        fun needsUnpack(
             hasDb: Boolean,
-            downloadedAtMs: Long,
-            nowMs: Long = System.currentTimeMillis()
+            installedGeneratedAtMs: Long,
+            bundledGeneratedAtMs: Long
         ): Boolean {
-            if (!hasDb || downloadedAtMs <= 0L) return true
-            return (nowMs - downloadedAtMs) > MAX_AGE_MS
+            if (!hasDb || installedGeneratedAtMs <= 0L) return true
+            if (bundledGeneratedAtMs > 0L && bundledGeneratedAtMs != installedGeneratedAtMs) return true
+            return false
         }
 
         fun normalizeForIndex(text: String?): String =
@@ -186,124 +157,82 @@ class LocalPodcastCatalog(private val context: Context) {
     internal fun catalogDir(): File = File(context.filesDir, "catalog").apply { if (!exists()) mkdirs() }
     internal fun dbFile(): File = File(catalogDir(), "podcastindex_catalog.db")
 
-    fun snapshotUrl(): String =
-        prefs.getString(PREF_KEY_SNAPSHOT_URL, null)?.trim()?.ifBlank { null } ?: DEFAULT_SNAPSHOT_URL
+    fun hasBundledAsset(): Boolean = try {
+        context.assets.open(BUNDLED_ASSET_NAME).use { true }
+    } catch (_: Exception) {
+        false
+    }
 
     fun hasCatalog(): Boolean {
         val f = dbFile()
-        return f.exists() && f.length() > 0L && prefs.getInt(PREF_KEY_COUNT, 0) > 0
+        if (f.exists() && f.length() > 0L && prefs.getInt(PREF_KEY_COUNT, 0) > 0) return true
+        return hasBundledAsset()
     }
 
-    fun getStatus(nowMs: Long = System.currentTimeMillis()): CatalogStatus {
-        val available = hasCatalog()
-        val downloadedAt = prefs.getLong(PREF_KEY_DOWNLOADED_AT, 0L)
-        val generatedAt = prefs.getLong(PREF_KEY_GENERATED_AT, 0L)
-        val count = if (available) prefs.getInt(PREF_KEY_COUNT, 0) else 0
-        return CatalogStatus(
-            available = available,
-            count = count,
-            downloadedAtMs = downloadedAt,
-            generatedAtMs = generatedAt,
-            isStale = isStale(available, downloadedAt, nowMs)
-        )
+    fun getStatus(): CatalogStatus {
+        val f = dbFile()
+        val unpacked = f.exists() && f.length() > 0L && prefs.getInt(PREF_KEY_COUNT, 0) > 0
+        if (unpacked) {
+            return CatalogStatus(
+                available = true,
+                count = prefs.getInt(PREF_KEY_COUNT, 0),
+                generatedAtMs = prefs.getLong(PREF_KEY_GENERATED_AT, 0L)
+            )
+        }
+        val bundled = readBundledHeader()
+        return if (bundled != null && bundled.count > 0) {
+            CatalogStatus(available = true, count = bundled.count, generatedAtMs = bundled.generatedAt)
+        } else {
+            CatalogStatus(available = false, count = 0, generatedAtMs = 0L)
+        }
     }
 
-    fun isStale(nowMs: Long = System.currentTimeMillis()): Boolean =
-        isStale(hasCatalog(), prefs.getLong(PREF_KEY_DOWNLOADED_AT, 0L), nowMs)
-
-    fun isOnUnmeteredNetwork(): Boolean {
+    private fun readBundledHeader(): CatalogHeader? {
         return try {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-            val net = cm.activeNetwork ?: return false
-            val caps = cm.getNetworkCapabilities(net) ?: return false
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            context.assets.open(BUNDLED_ASSET_NAME).use { raw ->
+                val buffered = BufferedInputStream(raw, 8 * 1024)
+                buffered.mark(2)
+                val b0 = buffered.read()
+                val b1 = buffered.read()
+                buffered.reset()
+                val decoded: InputStream = if (b0 == 0x1f && b1 == 0x8b) GZIPInputStream(buffered, 8 * 1024) else buffered
+                BufferedReader(InputStreamReader(decoded, Charsets.UTF_8)).use { reader ->
+                    parseHeader(reader.readLine().orEmpty())
+                }
+            }
         } catch (_: Exception) {
-            false
+            null
         }
     }
 
     /**
-     * Refreshes the local partial Podcast Index DB if missing or > 21 days old (or if [force] is true).
-     * When [requireUnmetered] is true (background auto-update), skips if the device is on metered mobile data.
+     * Unpacks and indexes the build-time bundled APK asset (`assets/podcastindex-catalog.tsv.gz`)
+     * into local SQLite + FTS4 storage if missing or updated by a newer app build. Zero network I/O.
      */
-    suspend fun refreshIfStale(
-        force: Boolean = false,
-        requireUnmetered: Boolean = false,
-        nowMs: Long = System.currentTimeMillis()
-    ): RefreshResult = withContext(Dispatchers.IO) {
-        if (!force && !isStale(nowMs)) {
-            return@withContext RefreshResult(
-                outcome = RefreshOutcome.UP_TO_DATE,
-                count = prefs.getInt(PREF_KEY_COUNT, 0),
-                message = "Local catalog is up to date"
-            )
-        }
-        if (requireUnmetered && !isOnUnmeteredNetwork()) {
-            Log.i(TAG, "Skipping background catalog refresh on metered network")
-            return@withContext RefreshResult(
-                outcome = RefreshOutcome.SKIPPED_METERED,
-                count = prefs.getInt(PREF_KEY_COUNT, 0),
-                message = "Waiting for Wi-Fi to update local catalog"
-            )
-        }
-
-        val url = snapshotUrl()
-        val reqBuilder = Request.Builder()
-            .url(url)
-            .header("User-Agent", PodcastRepository.USER_AGENT)
-
-        if (!force && hasCatalog()) {
-            prefs.getString(PREF_KEY_ETAG, null)?.takeIf { it.isNotBlank() }?.let {
-                reqBuilder.header("If-None-Match", it)
+    fun ensureInstalled(): Boolean {
+        synchronized(dbLock) {
+            val f = dbFile()
+            val hasDb = f.exists() && f.length() > 0L && prefs.getInt(PREF_KEY_COUNT, 0) > 0
+            val installedGeneratedAt = prefs.getLong(PREF_KEY_GENERATED_AT, 0L)
+            val bundledHeader = readBundledHeader()
+            if (bundledHeader == null && !hasBundledAsset()) {
+                return hasDb
             }
-            prefs.getString(PREF_KEY_LAST_MODIFIED, null)?.takeIf { it.isNotBlank() }?.let {
-                reqBuilder.header("If-Modified-Since", it)
+            if (!needsUnpack(hasDb, installedGeneratedAt, bundledHeader?.generatedAt ?: 0L)) {
+                return true
             }
-        }
-
-        try {
-            val client = PodcastRepository.getOkHttpClient()
-            client.newCall(reqBuilder.build()).execute().use { response ->
-                if (response.code == 304 && hasCatalog()) {
-                    prefs.edit().putLong(PREF_KEY_DOWNLOADED_AT, nowMs).apply()
-                    val count = prefs.getInt(PREF_KEY_COUNT, 0)
-                    Log.i(TAG, "Local catalog unchanged (304 Not Modified); reset 21-day timer ($count shows)")
-                    return@withContext RefreshResult(
-                        outcome = RefreshOutcome.NOT_MODIFIED,
-                        count = count,
-                        message = "Local catalog is already the latest snapshot"
-                    )
+            return try {
+                context.assets.open(BUNDLED_ASSET_NAME).use { stream ->
+                    val count = importFromStream(stream)
+                    Log.i(TAG, "Indexed bundled Podcast Index catalog: $count shows")
+                    count > 0
                 }
-                if (!response.isSuccessful) {
-                    val msg = "Catalog download failed: HTTP ${response.code}"
-                    Log.w(TAG, msg)
-                    return@withContext RefreshResult(outcome = RefreshOutcome.FAILED, message = msg)
-                }
-                val body = response.body ?: return@withContext RefreshResult(
-                    outcome = RefreshOutcome.FAILED,
-                    message = "Empty catalog response"
-                )
-                val imported = importFromStream(
-                    rawStream = body.byteStream(),
-                    etag = response.header("ETag"),
-                    lastModified = response.header("Last-Modified"),
-                    nowMs = nowMs
-                )
-                Log.i(TAG, "Imported local Podcast Index catalog: $imported shows")
-                RefreshResult(
-                    outcome = RefreshOutcome.UPDATED,
-                    count = imported,
-                    message = "Updated local catalog ($imported shows)"
-                )
+            } catch (_: FileNotFoundException) {
+                hasDb
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to unpack bundled Podcast Index catalog: ${e.message}", e)
+                hasDb
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to refresh local catalog: ${e.message}", e)
-            RefreshResult(
-                outcome = RefreshOutcome.FAILED,
-                count = prefs.getInt(PREF_KEY_COUNT, 0),
-                message = e.message ?: "Catalog download failed"
-            )
         }
     }
 
@@ -313,8 +242,6 @@ class LocalPodcastCatalog(private val context: Context) {
      */
     fun importFromStream(
         rawStream: InputStream,
-        etag: String? = null,
-        lastModified: String? = null,
         nowMs: Long = System.currentTimeMillis()
     ): Int {
         val buffered = BufferedInputStream(rawStream, 16 * 1024)
@@ -425,13 +352,8 @@ class LocalPodcastCatalog(private val context: Context) {
                     tmpFile.delete()
                 }
                 prefs.edit()
-                    .putLong(PREF_KEY_DOWNLOADED_AT, nowMs)
                     .putLong(PREF_KEY_GENERATED_AT, header?.generatedAt ?: nowMs)
                     .putInt(PREF_KEY_COUNT, count)
-                    .apply {
-                        if (etag != null) putString(PREF_KEY_ETAG, etag)
-                        if (lastModified != null) putString(PREF_KEY_LAST_MODIFIED, lastModified)
-                    }
                     .apply()
             }
             return count
@@ -441,9 +363,10 @@ class LocalPodcastCatalog(private val context: Context) {
         }
     }
 
-    /** Full-text search against the local partial Podcast Index SQLite DB. */
+    /** Full-text search against the bundled local partial Podcast Index SQLite DB. */
     fun search(query: String, limit: Int = 40): List<SearchResult> {
         val ftsQuery = buildFtsQuery(query) ?: return emptyList()
+        ensureInstalled()
         return queryWithDb { db ->
             val sql = """
                 SELECT p.title, p.author, p.url, p.artwork, p.categories, p.itunes_id, p.podcast_guid, p.newest_item_pubdate
@@ -463,10 +386,11 @@ class LocalPodcastCatalog(private val context: Context) {
         }
     }
 
-    /** Browse a category from the local partial Podcast Index SQLite DB. */
+    /** Browse a category from the bundled local partial Podcast Index SQLite DB. */
     fun browseCategory(category: String, limit: Int = 40): List<SearchResult> {
         val queries = categoryFtsQueries(category)
         if (queries.isEmpty()) return emptyList()
+        ensureInstalled()
         return queryWithDb { db ->
             val sql = """
                 SELECT p.title, p.author, p.url, p.artwork, p.categories, p.itunes_id, p.podcast_guid, p.newest_item_pubdate
