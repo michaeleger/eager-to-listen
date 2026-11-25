@@ -5,7 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [0.9.4-alpha] - 2026-11-10
+## [0.9.4-alpha] - 2026-11-25 (Build 13)
+
+**Note on version numbers:** `0.9.3-alpha` (Build 12) was an internal test build and was **skipped publicly** — this release goes directly from **`0.9.2-alpha` (Build 11)** to **`0.9.4-alpha` (Build 13)** and includes all of `0.9.3`'s playback and Android Auto recovery improvements.
+
+📲 **Download:** signed APKs (19.1 MB) and release notes are on the app page, [eagertobehealthy.com/eager-to-listen](https://eagertobehealthy.com/eager-to-listen). Already on `0.9.2`? Install `0.9.4` right over the top — your shows, queue, bookmarks, and settings stay put.
+
+### 🔎 Show search & built-in Podcast Index catalog
+- **Built-in 25,000-show Podcast Index catalog (instant & offline):** The app now ships with a compact partial copy of the top 25,000 active shows from PodcastIndex.org bundled at build time (automatically refreshed at build time whenever the snapshot is more than 21 days old — never downloaded from your phone or PC). Common searches and category browsing work instantly with zero load on PodcastIndex.org's donation-funded servers.
+- **3-tier search with Apple Podcasts fallback:** Searches check your **bundled local Podcast Index catalog** first, then the **live Podcast Index API** (if you added your free key in Settings), and finally **Apple Podcasts** as a fallback if neither finds a match.
+- **Optional Apple Podcasts fallback toggle** (Settings → Podcast Index, on by default): Apple's directory is a closed service; turn this off and the app never contacts Apple. Same setting and 3-tier search on the desktop.
+- Dead feeds marked by Podcast Index are filtered out, and results display the latest episode date and source.
+
+### ➕ Adding shows & RSS deep links
+- **Open podcast and RSS links directly in the app:** Tapping `feed://`, `podcast://`, `pcast://`, or `itpc://` links, RSS/Atom links (`application/rss+xml`, `application/atom+xml`), or downloaded feed files opens **Add show**.
+- **Share or paste any show link:** Use Android's **Share → Add show to Eager to Listen** or paste into Discover for RSS feeds, Apple Podcasts links, "Subscribe on Android" links, Overcast links, or a show's own web page. *(Unverified third-party web-domain link claims were removed from the Android manifest to resolve Google Play Console deep-link verification errors.)*
+- **Preview before subscribing:** Add show displays artwork, episode count, and latest episode date with priority **P2** preselected (change it or tap Subscribe). If you already follow the show it says so, and a show you previously unfollowed comes back with its history intact.
 
 ### ⚡ Faster sync (phone and desktop)
 - **Sync only does the work that's needed.** Before each sync the app checks whether anything changed, on this device or in the Drive folder, since the last one. Nothing changed: it stops there ("Already up to date") without downloading or uploading. Only this device changed: it uploads without downloading first. The folder changed: the full sync as before, but it only uploads again if this device has something the folder doesn't.
@@ -13,72 +28,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The Sync button always does the full sync, and so does the first automatic sync after 6 hours, as a safety net.
 - **Android: merging is much quicker with a big history.** Episodes are compared in a few batches and saved in one step, instead of one database lookup and one save per episode.
 
+### 🚗 Playback & Android Auto recovery (includes all skipped 0.9.3 work)
+- **Immediate advance past completed episodes on Android Auto:** Pressing Play or resuming checks SQLite state first and moves straight to the next playable queue episode if the previously loaded episode was already played or dismissed.
+- **Rides out tunnels and dead zones:** With no internet connection at all, the player waits for the signal to return (up to ~8½ minutes) instead of skipping through your queue. When online, a broken stream retries twice quickly (`1.5s`, `3.0s`) and temporarily skips to the next playable episode without permanently marking it unplayable.
+- **Streaming no longer stalls with the screen off:** The player holds wake and Wi-Fi locks during active playback.
+- **Good downloads are protected:** Background cleanup never deletes the currently loaded episode. Phone calls and Bluetooth switches retry audio output instead of deleting your download; only genuinely missing, truncated, or unreadable files are removed and seamlessly streamed from your saved timestamp.
+- **Preserved timestamps at 98% completion:** Marking an episode played at 98% keeps your real timestamp instead of resetting to `0:00` or moving sync time backward.
+- **Playback errors included in email reports (with private feed keys redacted):** Source errors, playback errors, and recovery actions are included in feedback/crash reports while stripping private access keys from premium feed URLs.
 
-### 🛠️ Fixes from the November 10 code audit: Android
-- **Streaming no longer stalls with the screen off.** The player now keeps the phone's processor and Wi-Fi awake while it plays.
-- **One sync at a time.** Leaving the app, the 12-hour update and the Sync button could each start a sync at the same moment and write over each other.
-- **Sync stops instead of overwriting what it can't read.** If the sync file in Drive can't be read (half uploaded, damaged), nothing is changed and you're told to try again; before, it was replaced along with its backup copy. A conflict copy that can't be read is kept instead of deleted.
-- **Downloads:** episodes with very long addresses can download now (the file name was too long, so they failed every time); an interrupted download only continues if the file on the server is still the same one, which matters for shows with changing ads; a Wi-Fi sign-in page is no longer saved as an episode.
-- A show can only move itself to a new address that is a web address.
-- Feed hosts now see the real app version. Removed an unused file-sharing component and a leftover screen layout.
-
-### 🛠️ Audit fixes: desktop
-- **Links open again.** Support Show, Episode page and the Podcast Index sign-up link were all blocked by a missing permission.
-- Sync stops, the same as on the phone, when the main sync file can't be read.
-
-### 🧹 Audit fixes: repo
-- The old web prototype (`server.js`, `public/`): dependencies updated (12 known vulnerabilities, now 0), Capacitor removed, the feed proxy now listens on this computer only and checks every address at connect time, including redirects.
-- Removed another product's name from code, samples, config and outreach text.
+### 🛠️ Fixes from the November 10 code audit (Android, desktop & repo)
+- **One sync at a time:** Leaving the app, the 12-hour background update, and the Sync button no longer collide or overwrite each other.
+- **Sync stops instead of overwriting what it can't read:** If the sync file in Drive is damaged or half-uploaded, nothing is overwritten and you're told to try again; unreadable conflict copies are kept instead of deleted.
+- **Download fixes:** Episodes with very long URLs now download cleanly; interrupted downloads only resume when the server file hasn't changed (preventing broken dynamic-ad splices); Wi-Fi captive-portal login pages are never saved as audio files.
+- A show can only redirect itself to a valid `http`/`https` feed address; feed hosts now see the real app version.
+- **Desktop links open again:** Support Show, Episode page, and Podcast Index sign-up links now open properly in your browser.
+- **Repo cleanup:** Updated web prototype dependencies (0 vulnerabilities), removed Capacitor leftovers, hardened the local feed proxy, and cleaned up stray copy.
 
 ### 📦 Open source and F-Droid
-- **Eager to Listen is now free software under the GNU GPL v3.0** (see LICENSE). The app is being submitted to F-Droid.
-- **New setting: Also search Apple Podcasts** (Settings → Podcast Index, on by default). Apple's directory is a closed service; turn this off and the app never contacts Apple and searches Podcast Index only (add your free key). Apple Podcasts links need it on. Same switch on the desktop.
-- Build cleanup for F-Droid: removed an unused Google build plugin and the Google-encrypted dependency list from the APK.
-
-### 🚗 Playback recovery (follow-ups to 0.9.3)
-- **No signal no longer skips your episode.** 0.9.3 gives up on a streaming episode after two quick retries and moves on, which is right when the source is broken but wrong in a tunnel or dead zone, where it would skip through the queue. With no internet connection at all, the player waits for the signal again (up to about 8½ minutes, as before 0.9.3). With a connection, a failing source still moves on after the two quick retries.
-- **A phone call or Bluetooth switch no longer deletes a good download.** 0.9.3 deletes a downloaded file and streams instead on any error while playing it. Now that only happens when reading the file itself failed (missing, cut short, can't be read); audio output errors retry as before.
-- **Error reports leave out private feed keys.** Premium and private feeds put your access key in the link; links in emailed reports now keep only the address and drop the rest.
-- Listening on past 98% of an already-played episode no longer moves its sync time backward (an older copy from another device could win).
-
-### ➕ Adding shows
-- **Open podcast and RSS links in the app.** `feed://`, `podcast://`, `pcast://` and `itpc://` links, RSS/Atom links, "Subscribe on Android" buttons, and feed files opened from Downloads or Files all open **Add show**. You can also share a link to the app (**Add show to Eager to Listen** in the share menu) or paste one into search. Apple Podcasts and Overcast show links work too (the app looks up the show's feed), and so does a show's website if it lists its feed.
-- **Add show lets you check the show before subscribing.** It shows the artwork, episode count and latest episode date, with priority **P2** picked; change it or tap Subscribe. If you already follow the show it says so, and a show you unfollowed comes back with its history.
-- On Android 12 and later, "Subscribe on Android" and Apple Podcasts web links only open in the app after you allow it under **App info → Open by default**. Sharing the link to the app always works.
-
-### 🔎 Show search
-- **New shows turn up again.** Apple Podcasts used to be searched only when Podcast Index found nothing at all, so a new show that Podcast Index hadn't picked up never appeared. Now both are searched at the same time and the results merged; a show listed in both appears once, using whichever address has the newest episode, and feeds Podcast Index marks dead are left out.
-- One directory being down or offline no longer breaks the search, and search results show the latest episode date and where each result came from, so a stale listing stands out.
-- Same fix on the desktop.
+- **Eager to Listen is now free software under the GNU GPL v3.0** (see `LICENSE`) and prepared for F-Droid.
+- Build cleanup for F-Droid: removed an unused Google build plugin and Google-encrypted dependency metadata from APK/AAB builds.
 
 ### 🔄 Sync
-- **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device used to bring it back at the next sync, because the other device still had it. Removals are now remembered and synced, and the newer action wins: pin it again later and it comes back.
-- The sync file gains a `manualQueueRemoved` list. It's an addition, so 0.9.2 still reads new files without trouble.
+- **A queue item you remove stays removed on your other devices.** Removing a pinned episode (Play Next / Add to queue) on one device no longer brings it back on the next sync; re-pinning later still wins.
+- The sync file adds `manualQueueRemoved` in a backward-compatible way so `0.9.2` can still read newer sync files.
 
 ### 💡 Creator Inspiration Studio (bookmarks)
-- **Backed up to Drive, permanently.** Every sync adds your bookmarks to `eagertolisten_bookmarks.jsonl` in your Google Drive sync folder: one bookmark per line with the show, episode, episode page link (when the feed has one), audio link, a link that jumps straight to the moment, the timestamp, the transcript link and the transcript text around the moment, and your note. Nothing is ever removed from it; cleared bookmarks are marked, not deleted.
-- **Share all, then clear.** "Share all" sends the whole list as Markdown, grouped by show and episode. Afterward the Studio offers to clear exactly what you shared, but only once every one of them is confirmed in the Drive archive. Bookmarks you add in the meantime aren't touched.
-- **"Export Best Of" is gone.** It only ever listed the shows you'd bookmarked (one line per show), not the bookmarks themselves. Share all replaces it.
-- **Save Idea catches what you just heard:** the bookmark starts 15 seconds before the tap, and the note starts empty instead of "Bookmarked from Player" / "Captured from Android Auto" (where it was captured goes in the tags).
-- **Easier to find:** a Bookmarks chip on the Queue screen opens the Studio (it's still in Settings too).
-- **Edits and deletes sync properly.** A note you edit is no longer overwritten by the other device's older copy, and deleted or cleared bookmarks don't come back.
-- Database version 8 (episode page links, bookmark edit times). Upgrades in place.
+- **Backed up to Drive, permanently.** Every sync appends bookmarks to `eagertolisten_bookmarks.jsonl` in your Google Drive sync folder (show, episode, episode page link, audio link, jump link, timestamp, transcript excerpt, and note). Nothing is ever removed; cleared bookmarks are marked, not deleted.
+- **Share all, then clear.** "Share all" exports your bookmarks as Markdown grouped by show and episode, and offers to clear only the items already confirmed in the Drive archive.
+- **"Export Best Of" removed:** Replaced by Share all.
+- **Save Idea catches what you just heard:** Bookmarks start 15 seconds before your tap with an empty note (capture source goes in tags).
+- **Easier to find:** Added a Bookmarks chip right on the Queue screen (in addition to Settings).
+- **Edits and deletes sync properly:** Newer note edits win and cleared/deleted bookmarks stay gone.
+- Database version 8 (episode page links, bookmark edit times). Upgrades in place from `0.9.2`.
 
-### 🖥 Desktop (Linux first) — new, alpha
-- **Eager to Listen for the desktop** (`desktop/`): a native Linux app built with Tauri, with Windows to follow from the same code.
-- **Shares everything with your phone**: shows, per-show rules, queue and pins, played status, progress and bookmarks, through the same Google Drive sync folder the phone uses. On Linux it reaches Drive through rclone; a plain folder path works too.
-- **Same queue as the phone**: the fair-interleaving engine, all four play orders, back-to-back limits, skip intro/outro and per-show speed, ported rule for rule from the Android code with the Android tests ported alongside.
-- **Curated Airwaves (Radio U)**: the queue order menu from the phone (Radio U fair flow, Priority then Date oldest or newest first, Date newest or oldest first), the anti-binge limit and news window, and the Hot List / Unplayed / Played tabs.
-- **Podcast Index search** with your own API key (Apple Podcasts when there's no key), category browsing, and the same featured shows as the phone.
-- **Finds your phone's sync folder** by searching your Drive for the sync file, or lets you browse to it. rclone can live in your home folder; no sudo needed.
-- Ships as an AppImage that carries its own audio codecs, so it runs on machines where you can't install packages.
-- Check for new episodes, download episodes for offline play, bookmark a spot, and pick up where you left off after a restart.
-- **Recovers from playback errors the way the phone does (0.9.3, plus the fixes above):** a download that won't play is deleted and streamed from your spot; a link that fails gets two quick retries, then a check of the feed for a new link, then it's skipped for now (it stays in the queue, and pressing Play on it tries again). With no connection it waits instead of skipping. When everything left has failed, it stops rather than cycling the queue. Never starts an episode in its last seconds.
-- **Settings → Playback problems** lists what went wrong and what the app did, with Copy all for sending a report (private feed keys are left out).
+### 🖥 Desktop (Linux & Windows) — new, alpha
+- **Eager to Listen for the desktop** (`desktop/`): a native Tauri app sharing the same queue engine, rules, bookmarks, and Google Drive sync folder as your phone (via `rclone` or a local folder).
+- **Same Curated Airwaves (Radio U) engine**, anti-binge limits, news window, Hot List / Unplayed / Played tabs, and playback recovery as Android.
+- **Same built-in 25,000-show Podcast Index catalog & 3-tier search waterfall** (local bundled catalog → live Podcast Index API → optional Apple Podcasts fallback).
+- **Settings → Playback problems** lists recent errors and recovery actions with one-click copy (private feed keys redacted).
 
 ---
 
-## [0.9.3-alpha] - 2026-11-05
+## [0.9.3-alpha] - 2026-11-05 *(Internal test build — skipped publicly, rolled into 0.9.4-alpha)*
 
 ### 🚗 Android Auto Playback & Source Error Recovery
 - **Immediate advance past completed episodes**: Pressing Play or resuming on Android Auto now checks SQLite state first and immediately advances to the next playable queue episode if the previously loaded episode was already marked played or dismissed.
